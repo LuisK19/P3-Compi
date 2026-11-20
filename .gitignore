@@ -1,0 +1,5 @@
+out/
+*.class
+generated/
+correr_pruebas.ps1
+salida/
