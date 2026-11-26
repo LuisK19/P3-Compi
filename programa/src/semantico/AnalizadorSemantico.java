@@ -2,7 +2,6 @@ package src.semantico;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import src.tabla.ReporteTokens;
 import src.tabla.Simbolo;
 import src.tabla.SimboloArreglo;
@@ -26,7 +25,7 @@ public class AnalizadorSemantico {
     private int erroresSintacticos = 0;
     private int erroresSintacticosAlIniciarFuncion = 0;
     private int ciclosAbiertos = 0;
-    private HashSet<String> nombresUsadosEnFuncion = new HashSet<>();
+    private HashMap<String, Integer> declaracionesEnFuncion = new HashMap<>();
 
     /**
      * Guarda las firmas de funciones obtenidas antes del análisis.
@@ -90,7 +89,7 @@ public class AnalizadorSemantico {
      */
     public void abrirAlcance(String nombre) {
         if (tabla.estaEnAlcanceGlobal()) {
-            nombresUsadosEnFuncion.clear();
+            declaracionesEnFuncion.clear();
         }
         tabla.abrirAlcance(nombre);
     }
@@ -144,9 +143,9 @@ public class AnalizadorSemantico {
 
     /**
      * Agrega un símbolo y define su nombre en el código intermedio: las
-     * globales llevan #global y una local lleva #local cada vez que su nombre
-     * ya se usó en la misma función, porque oculta a otra variable o porque
-     * está en un bloque hermano.
+     * globales llevan #global y las locales llevan cuántas veces se ha
+     * declarado ese nombre en la función (x#1, x#2...), así no se confunden
+     * si una oculta a otra o si están en bloques hermanos.
      *
      * @param simbolo símbolo por agregar
      */
@@ -154,12 +153,9 @@ public class AnalizadorSemantico {
         if (tabla.estaEnAlcanceGlobal()) {
             simbolo.setNombreEnCodigo(simbolo.getNombre() + "#global");
         } else {
-            String nombreEnCodigo = simbolo.getNombre();
-            while (nombresUsadosEnFuncion.contains(nombreEnCodigo)) {
-                nombreEnCodigo += "#local";
-            }
-            nombresUsadosEnFuncion.add(nombreEnCodigo);
-            simbolo.setNombreEnCodigo(nombreEnCodigo);
+            int vecesDeclarado = declaracionesEnFuncion.getOrDefault(simbolo.getNombre(), 0) + 1;
+            declaracionesEnFuncion.put(simbolo.getNombre(), vecesDeclarado);
+            simbolo.setNombreEnCodigo(simbolo.getNombre() + "#" + vecesDeclarado);
         }
         tabla.agregar(simbolo);
         reporteTokens.registrarTabla(simbolo.getLinea() - 1, simbolo.getColumna() - 1, simbolo.getAlcance());
