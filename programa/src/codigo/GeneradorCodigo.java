@@ -328,9 +328,10 @@ public class GeneradorCodigo {
     }
 
     /**
-     * Genera un for con el número reservado en {@link #abrirFor()}: ejecuta el
-     * inicio una vez y luego funciona como un while que ejecuta la
-     * actualización al final de cada vuelta.
+     * Genera un for con el número reservado en {@link #abrirFor()}. Cada parte
+     * tiene su etiqueta: el inicio se ejecuta una vez, la condición decide si se
+     * entra al cuerpo y, al terminar el cuerpo, se salta a la actualización, que
+     * vuelve a la condición.
      *
      * @param encabezado inicio, condición y actualización del for
      * @param cuerpo código del bloque del for
@@ -340,15 +341,18 @@ public class GeneradorCodigo {
         int numero = numerosCiclo.pop();
         salidasCiclo.pop();
         ResultadoExpresion condicion = encabezado.getCondicion();
-        return encabezado.getInicio()
-                + etiqueta("for#" + numero)
+        return etiqueta("for#begin#" + numero)
+                + encabezado.getInicio()
+                + etiqueta("for#condition#" + numero)
                 + condicion.getCodigo()
                 + instruccion("if " + condicion.getDireccion() + " goto for#body#" + numero)
                 + instruccion("goto for#end#" + numero)
+                + etiqueta("for#update#" + numero)
+                + encabezado.getActualizacion()
+                + instruccion("goto for#condition#" + numero)
                 + etiqueta("for#body#" + numero)
                 + cuerpo
-                + encabezado.getActualizacion()
-                + instruccion("goto for#" + numero)
+                + instruccion("goto for#update#" + numero)
                 + etiqueta("for#end#" + numero);
     }
 
