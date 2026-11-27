@@ -17,6 +17,9 @@ import java.util.Stack;
  */
 public class TablaSimbolos {
     private static final int ANCHO_REPORTE = 63;
+    private static final int MINIMO_IGUALES_TITULO = 3;
+    private static final String FORMATO_ENCABEZADO = "%-15s %-10s %-6s %-6s %-8s %s";
+    private static final String FORMATO_FILA = "%-15s %-10s %-6s %-6d %-8d %s";
 
     private Stack<Alcance> alcancesAbiertos = new Stack<>();
     private ArrayList<Alcance> todosLosAlcances = new ArrayList<>();
@@ -44,7 +47,7 @@ public class TablaSimbolos {
      * Cierra el alcance actual. El alcance global nunca se cierra.
      */
     public void cerrarAlcance() {
-        if (alcancesAbiertos.size() > 1) {
+        if (!estaEnAlcanceGlobal()) {
             alcancesAbiertos.pop();
         }
     }
@@ -137,7 +140,7 @@ public class TablaSimbolos {
         }
         titulo += " ";
 
-        int igualesFaltantes = Math.max(3, ANCHO_REPORTE - titulo.length());
+        int igualesFaltantes = Math.max(MINIMO_IGUALES_TITULO, ANCHO_REPORTE - titulo.length());
         escritor.write(titulo + "=".repeat(igualesFaltantes));
         escritor.newLine();
     }
@@ -149,7 +152,7 @@ public class TablaSimbolos {
      * @throws IOException si no se puede escribir
      */
     private void escribirEncabezadoColumnas(BufferedWriter escritor) throws IOException {
-        escritor.write(String.format("%-15s %-10s %-6s %-6s %-8s %s",
+        escritor.write(String.format(FORMATO_ENCABEZADO,
                 "nombre", "categoria", "tipo", "linea", "columna", "informacion"));
         escritor.newLine();
         escribirSeparador(escritor);
@@ -174,7 +177,7 @@ public class TablaSimbolos {
      * @throws IOException si no se puede escribir
      */
     private void escribirFila(BufferedWriter escritor, Simbolo simbolo) throws IOException {
-        escritor.write(String.format("%-15s %-10s %-6s %-6d %-8d %s",
+        escritor.write(String.format(FORMATO_FILA,
                 simbolo.getNombre(), simbolo.getCategoria(), simbolo.getTipo(),
                 simbolo.getLinea(), simbolo.getColumna(), simbolo.getInformacionExtra()));
         escritor.newLine();
