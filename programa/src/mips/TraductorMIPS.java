@@ -11,10 +11,21 @@ package src.mips;
 public class TraductorMIPS {
     private static final String FIN_PRINCIPAL = "funcion#void#principal#end";
 
+    private static final int LLAMADA_ESCRIBIR_ENTERO = 1;
+    private static final int LLAMADA_ESCRIBIR_TEXTO = 4;
+    private static final int LLAMADA_LEER_ENTERO = 5;
+    private static final int LLAMADA_TERMINAR = 10;
+    private static final int LLAMADA_ESCRIBIR_CARACTER = 11;
+    private static final int CARACTER_SALTO_DE_LINEA = 10;
+
+    private static final int PARTES_DE_UNA_COPIA = 1;
+    private static final int PARTES_DE_UNA_OPERACION = 3;
+
     private StringBuilder datos = new StringBuilder();
     private StringBuilder texto = new StringBuilder();
     private MarcoFuncion marco;
     private int contadorPotencias = 0;
+    private int contadorTextos = 0;
 
     /**
      * Traduce un programa completo por secciones: main, donde se inicializan
@@ -100,6 +111,10 @@ public class TraductorMIPS {
             traducirSalto(linea);
         } else if (linea.startsWith("var#")) {
             traducirDeclaracion(linea);
+        } else if (linea.startsWith("write#")) {
+            traducirWrite(linea);
+        } else if (linea.startsWith("read#")) {
+            traducirRead(linea);
         } else if (linea.contains(" = ")) {
             traducirAsignacion(linea);
         } else {
@@ -150,25 +165,48 @@ public class TraductorMIPS {
     }
 
     /**
-     * Traduce una asignación: la copia de un valor o el resultado de una
-     * operación entera. Los operandos se cargan en $t0 y $t1 y el resultado
-     * queda en $t0 antes de guardarse.
+     * Traduce una asignación: la copia de un valor, un texto literal o el
+     * resultado de una operación entera. Los operandos se cargan en $t0 y $t1
+     * y el resultado queda en $t0 antes de guardarse.
      *
      * @param linea asignación del código intermedio
      */
     private void traducirAsignacion(String linea) {
         int posicion = linea.indexOf(" = ");
         String destino = linea.substring(0, posicion);
-        String[] partes = linea.substring(posicion + " = ".length()).split(" ");
+        String valor = linea.substring(posicion + " = ".length());
+        String[] partes = valor.split(" ");
         if (destino.contains("[")) {
             marcarPendiente(linea);
-        } else if (partes.length == 1 && sePuedeCargar(partes[0])) {
-            cargar(partes[0], "$t0");
+        } else if (valor.startsWith("\"")) {
+            cargarTexto(valor, "$t0");
             guardar("$t0", destino);
-        } else if (partes.length == 3 && esOperacionEntera(destino, partes[1])) {
-            cargar(partes[0], "$t0");
-            cargar(partes[2], "$t1");
-            operar(partes[1]);
+        } else if (partes.length == PARTES_DE_UNA_COPIA && sePuedeCargar(valor)) {
+            cargar(valor, "$t0");
+            guardar("$t0", destino);
+        } else if (partes.length == PARTES_DE_UNA_OPERACION) {
+            traducirOperacion(linea, destino, partes);
+        } else {
+            marcarPendiente(linea);
+        }
+    }
+
+    /**
+     * Traduce una operación de la forma "izquierdo operador derecho" si es
+     * entera; si no, la deja pendiente.
+     *
+     * @param linea asignación completa del código intermedio
+     * @param destino nombre que recibe el resultado
+     * @param partes operando izquierdo, operador y operando derecho
+     */
+    private void traducirOperacion(String linea, String destino, String[] partes) {
+        String izquierdo = partes[0];
+        String operador = partes[1];
+        String derecho = partes[2];
+        if (esOperacionEntera(destino, operador)) {
+            cargar(izquierdo, "$t0");
+            cargar(derecho, "$t1");
+            operar(operador);
             guardar("$t0", destino);
         } else {
             marcarPendiente(linea);
@@ -279,6 +317,81 @@ public class TraductorMIPS {
     }
 
     /**
+     * Guarda un texto literal en la sección de datos y carga su dirección en
+     * un registro.
+     *
+     * @param literal texto del código intermedio, con sus comillas
+     * @param registro registro destino
+     */
+    private void cargarTexto(String literal, String registro) {
+        contadorTextos++;
+        String nombre = "string." + contadorTextos;
+        datos.append(nombre + ": .asciiz " + literal + "\n");
+        texto.append(instruccion("la " + registro + ", " + nombre));
+    }
+
+    /**
+     * Traduce un write de int o de string con la llamada al sistema que
+     * corresponde, seguida de un salto de línea.
+     *
+     * @param linea write del código intermedio
+     */
+    private void traducirWrite(String linea) {
+        String[] partes = linea.split(" ");
+        String tipo = partes[0].substring("write#".length());
+        String nombre = partes[1];
+        if (tipo.equals("int")) {
+            escribirValor(nombre, LLAMADA_ESCRIBIR_ENTERO);
+        } else if (tipo.equals("string")) {
+            escribirValor(nombre, LLAMADA_ESCRIBIR_TEXTO);
+        } else {
+            marcarPendiente(linea);
+        }
+    }
+
+    /**
+     * Escribe en la consola el valor de una variable o un temporal y después
+     * un salto de línea.
+     *
+     * @param nombre variable o temporal del código intermedio
+     * @param codigoLlamada código de la llamada al sistema que escribe el valor
+     */
+    private void escribirValor(String nombre, int codigoLlamada) {
+        cargar(nombre, "$a0");
+        llamarAlSistema(codigoLlamada);
+        texto.append(instruccion("li $a0, " + CARACTER_SALTO_DE_LINEA));
+        llamarAlSistema(LLAMADA_ESCRIBIR_CARACTER);
+    }
+
+    /**
+     * Traduce un read de int: lee el número con una llamada al sistema y lo
+     * guarda en la variable.
+     *
+     * @param linea read del código intermedio
+     */
+    private void traducirRead(String linea) {
+        String[] partes = linea.split(" ");
+        String tipo = partes[0].substring("read#".length());
+        String nombre = partes[1];
+        if (tipo.equals("int")) {
+            llamarAlSistema(LLAMADA_LEER_ENTERO);
+            guardar("$v0", nombre);
+        } else {
+            marcarPendiente(linea);
+        }
+    }
+
+    /**
+     * Hace una llamada al sistema: pone su código en $v0 y ejecuta syscall.
+     *
+     * @param codigoLlamada código de la llamada al sistema
+     */
+    private void llamarAlSistema(int codigoLlamada) {
+        texto.append(instruccion("li $v0, " + codigoLlamada));
+        texto.append(instruccion("syscall"));
+    }
+
+    /**
      * Guarda el valor de un registro en una variable o un temporal.
      *
      * @param registro registro con el valor
@@ -303,11 +416,10 @@ public class TraductorMIPS {
     }
 
     /**
-     * Termina el programa con la llamada al sistema 10 (exit).
+     * Termina el programa con la llamada al sistema exit.
      */
     private void traducirFinPrograma() {
-        texto.append(instruccion("li $v0, 10"));
-        texto.append(instruccion("syscall"));
+        llamarAlSistema(LLAMADA_TERMINAR);
     }
 
     /**
