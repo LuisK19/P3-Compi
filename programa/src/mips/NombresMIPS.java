@@ -2,9 +2,6 @@ package src.mips;
 
 /**
  * Convierte los nombres del código intermedio en nombres válidos en MIPS.
- *
- * <p>En MIPS el carácter # inicia un comentario, así que no puede formar parte
- * de un nombre.
  */
 public class NombresMIPS {
 

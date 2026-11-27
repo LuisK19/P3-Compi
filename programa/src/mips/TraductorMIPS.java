@@ -13,19 +13,73 @@ public class TraductorMIPS {
 
     private StringBuilder datos = new StringBuilder();
     private StringBuilder texto = new StringBuilder();
+    private MarcoFuncion marco;
 
     /**
-     * Traduce un programa completo. La ejecución empieza en main.
+     * Traduce un programa completo por secciones: main, donde se inicializan
+     * las globales, y cada función, cada una con su propio marco.
      *
      * @param codigoIntermedio código intermedio generado por el parser, sin errores
      * @return código MIPS del programa
      */
     public String traducir(String codigoIntermedio) {
-        texto.append(etiqueta("main"));
-        for (String linea : codigoIntermedio.split("\n")) {
-            traducirLinea(linea.trim());
+        String[] lineas = codigoIntermedio.split("\n");
+        iniciarSeccion("main", lineas, 0);
+        for (int i = 0; i < lineas.length; i++) {
+            String linea = lineas[i].trim();
+            if (esInicioDeFuncion(linea)) {
+                String nombre = linea.substring(0, linea.length() - 1);
+                iniciarSeccion(NombresMIPS.convertir(nombre), lineas, i + 1);
+            } else {
+                traducirLinea(linea);
+            }
         }
         return ".data\n" + datos + "\n.text\n.globl main\n" + texto;
+    }
+
+    /**
+     * Indica si una línea es la etiqueta con la que empieza una función.
+     *
+     * @param linea línea del código intermedio
+     * @return {@code true} si empieza una función
+     */
+    private boolean esInicioDeFuncion(String linea) {
+        return linea.startsWith("funcion#") && linea.endsWith(":");
+    }
+
+    /**
+     * Empieza una sección: arma su marco, escribe su etiqueta y reserva el
+     * espacio en la pila.
+     *
+     * @param nombre nombre de la sección en MIPS
+     * @param lineas todas las líneas del código intermedio
+     * @param desde posición de la primera línea de la sección
+     */
+    private void iniciarSeccion(String nombre, String[] lineas, int desde) {
+        marco = crearMarco(lineas, desde);
+        texto.append(etiqueta(nombre));
+        texto.append(instruccion("move $fp, $sp"));
+        if (marco.getTamano() > 0) {
+            texto.append(instruccion("addi $sp, $sp, -" + marco.getTamano()));
+        }
+    }
+
+    /**
+     * Arma el marco de una sección recorriendo sus líneas hasta la siguiente
+     * función o el final del código.
+     *
+     * @param lineas todas las líneas del código intermedio
+     * @param desde posición de la primera línea de la sección
+     * @return marco con las locales y los temporales de la sección
+     */
+    private MarcoFuncion crearMarco(String[] lineas, int desde) {
+        MarcoFuncion nuevo = new MarcoFuncion();
+        int actual = desde;
+        while (actual < lineas.length && !esInicioDeFuncion(lineas[actual].trim())) {
+            nuevo.registrar(lineas[actual].trim());
+            actual++;
+        }
+        return nuevo;
     }
 
     /**
@@ -49,7 +103,7 @@ public class TraductorMIPS {
     }
 
     /**
-     * Traduce una etiqueta, por ejemplo "if#true#1:".
+     * Traduce una etiqueta.
      *
      * @param linea etiqueta del código intermedio, con los dos puntos al final
      */
@@ -59,8 +113,7 @@ public class TraductorMIPS {
     }
 
     /**
-     * Traduce un salto incondicional, por ejemplo "goto while#1", a la
-     * instrucción j.
+     * Traduce un salto incondicional a la instrucción j.
      *
      * @param linea salto del código intermedio
      */

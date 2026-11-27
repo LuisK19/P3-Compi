@@ -1,0 +1,51 @@
+package src.mips;
+
+import java.util.HashMap;
+
+/**
+ * Espacio que ocupa en la pila una sección del código intermedio: la
+ * inicialización de globales o una función.
+ *
+ * <p>Cada variable local y cada temporal recibe un lugar fijo de una palabra
+ * debajo de $fp, que se usa durante toda la sección.
+ */
+public class MarcoFuncion {
+    private static final int TAMANO_PALABRA = 4;
+
+    private HashMap<String, Integer> desplazamientos = new HashMap<>();
+    private int tamano = 0;
+
+    /**
+     * Anota los nombres que crea una línea de la sección: la variable de un
+     * var# local o el temporal que recibe un valor. Las demás líneas no crean
+     * nombres.
+     *
+     * @param linea línea del código intermedio, sin espacios a los lados
+     */
+    public void registrar(String linea) {
+        if (linea.startsWith("var#")) {
+            agregar(linea.split(" ")[1]);
+        } else if (linea.startsWith("temp#") && linea.contains(" = ")) {
+            agregar(linea.substring(0, linea.indexOf(" = ")));
+        }
+    }
+
+    /**
+     * Le asigna un lugar en el marco a un nombre, si es local y todavía no lo
+     * tiene.
+     *
+     * @param nombre variable local o temporal
+     */
+    private void agregar(String nombre) {
+        if (nombre.endsWith("#global") || desplazamientos.containsKey(nombre)) {
+            return;
+        }
+        tamano += TAMANO_PALABRA;
+        desplazamientos.put(nombre, -tamano);
+    }
+
+    /** Devuelve cuántos bytes ocupa el marco. */
+    public int getTamano() {
+        return tamano;
+    }
+}
