@@ -97,6 +97,8 @@ public class TraductorMIPS {
             traducirEtiqueta(linea);
         } else if (linea.startsWith("goto ")) {
             traducirSalto(linea);
+        } else if (linea.startsWith("var#")) {
+            traducirDeclaracion(linea);
         } else {
             texto.append(instruccion("# pendiente: " + linea));
         }
@@ -120,6 +122,19 @@ public class TraductorMIPS {
     private void traducirSalto(String linea) {
         String destino = linea.substring("goto ".length());
         texto.append(instruccion("j " + NombresMIPS.convertir(destino)));
+    }
+
+    /**
+     * Traduce la declaración de una variable. Una global se reserva en la
+     * sección de datos con valor inicial cero; una local no genera código.
+     *
+     * @param linea declaración var# del código intermedio
+     */
+    private void traducirDeclaracion(String linea) {
+        String nombre = linea.split(" ")[1];
+        if (nombre.endsWith("#global")) {
+            datos.append(NombresMIPS.convertir(nombre) + ": .word 0\n");
+        }
     }
 
     /**
