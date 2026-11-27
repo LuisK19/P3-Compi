@@ -12,13 +12,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java_cup.runtime.Symbol;
+import src.mips.TraductorMIPS;
 import src.semantico.RecolectorFunciones;
 
 /**
  * Ejecuta las fases del compilador sobre un archivo fuente.
  *
  * <p>Lee los tokens, ejecuta el parser y genera los reportes de tokens, de la
- * tabla de símbolos y del código intermedio.
+ * tabla de símbolos y del código intermedio, y el código MIPS.
  */
 public class Analizador {
     private static final int ARGUMENTO_ENTRADA = 0;
@@ -32,7 +33,9 @@ public class Analizador {
      * <p>El primer argumento es el archivo de entrada, el segundo la ruta del
      * reporte CSV de tokens, el tercero la ruta del reporte de la tabla de
      * símbolos y el cuarto la ruta del código intermedio. Si no se
-     * proporcionan, los reportes se guardan en la carpeta salida.
+     * proporcionan, los reportes se guardan en la carpeta salida. El código
+     * MIPS se escribe junto al código intermedio, con el nombre del archivo de
+     * entrada y la extensión .asm.
      *
      * @param args rutas opcionales de entrada y de los reportes
      * @throws IOException si no se pueden crear las carpetas de los reportes
@@ -136,7 +139,8 @@ public class Analizador {
 
     /**
      * Ejecuta el parser, escribe los reportes, comunica si la entrada cumple la
-     * gramática y, si no hubo errores, escribe el código intermedio.
+     * gramática y, si no hubo errores, escribe el código intermedio y el código
+     * MIPS.
      *
      * @param rutaEntrada ruta del archivo fuente que se analizará
      * @param tokens tokens leídos del archivo de entrada
@@ -165,19 +169,56 @@ public class Analizador {
             if (analizadorLexico.huboErroresLexicos()
                     || analizadorSintactico.huboErroresSintacticos()
                     || analizadorSintactico.huboErroresSemanticos()) {
-                System.out.println("No se genero el codigo intermedio porque el archivo fuente tiene errores.");
+                System.out.println("No se genero el codigo intermedio ni el codigo MIPS porque el archivo fuente"
+                        + " tiene errores.");
                 System.out.println(
                         "\nRESULTADO: El archivo fuente NO puede ser generado por la gramatica (Errores encontrados).");
                 return;
             }
 
-            Files.writeString(Path.of(rutaCodigo), analizadorSintactico.getCodigoIntermedio(), StandardCharsets.UTF_8);
+            String codigoIntermedio = analizadorSintactico.getCodigoIntermedio();
+            Files.writeString(Path.of(rutaCodigo), codigoIntermedio, StandardCharsets.UTF_8);
             System.out.println("Codigo intermedio generado en -> " + rutaCodigo);
+            escribirCodigoMips(codigoIntermedio, rutaEntrada, rutaCodigo);
             System.out.println("\nRESULTADO: El archivo fuente SI puede ser generado por la gramatica.");
         } catch (Exception e) {
             System.err.println("Error durante el analisis: " + e.getMessage());
             System.out.println(
                     "\nRESULTADO: El archivo fuente NO puede ser generado por la gramatica (Errores encontrados).");
         }
+    }
+
+    /**
+     * Traduce el código intermedio a MIPS y lo escribe en su archivo.
+     *
+     * @param codigoIntermedio código intermedio generado por el parser
+     * @param rutaEntrada ruta del archivo fuente
+     * @param rutaCodigo ruta del archivo de código intermedio
+     * @throws IOException si no se puede escribir el archivo
+     */
+    private static void escribirCodigoMips(String codigoIntermedio, String rutaEntrada, String rutaCodigo)
+            throws IOException {
+        String rutaMips = rutaCodigoMips(rutaEntrada, rutaCodigo);
+        String codigoMips = new TraductorMIPS().traducir(codigoIntermedio);
+        Files.writeString(Path.of(rutaMips), codigoMips, StandardCharsets.UTF_8);
+        System.out.println("Codigo MIPS generado en -> " + rutaMips);
+    }
+
+    /**
+     * Arma la ruta del archivo MIPS: el nombre del archivo de entrada con la
+     * extensión .asm, en la misma carpeta que el código intermedio.
+     *
+     * @param rutaEntrada ruta del archivo fuente
+     * @param rutaCodigo ruta del archivo de código intermedio
+     * @return ruta del archivo MIPS
+     */
+    private static String rutaCodigoMips(String rutaEntrada, String rutaCodigo) {
+        String nombreEntrada = Path.of(rutaEntrada).getFileName().toString();
+        int punto = nombreEntrada.lastIndexOf('.');
+        String nombreSinExtension = punto > 0 ? nombreEntrada.substring(0, punto) : nombreEntrada;
+
+        String nombreCodigo = Path.of(rutaCodigo).getFileName().toString();
+        String carpeta = rutaCodigo.substring(0, rutaCodigo.length() - nombreCodigo.length());
+        return carpeta + nombreSinExtension + ".asm";
     }
 }

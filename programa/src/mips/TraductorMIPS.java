@@ -25,7 +25,6 @@ public class TraductorMIPS {
     private StringBuilder texto = new StringBuilder();
     private MarcoFuncion marco;
     private int contadorPotencias = 0;
-    private int contadorTextos = 0;
 
     /**
      * Traduce un programa completo por secciones: main, donde se inicializan
@@ -179,7 +178,7 @@ public class TraductorMIPS {
         if (destino.contains("[")) {
             marcarPendiente(linea);
         } else if (valor.startsWith("\"")) {
-            cargarTexto(valor, "$t0");
+            cargarTexto(valor, destino, "$t0");
             guardar("$t0", destino);
         } else if (partes.length == PARTES_DE_UNA_COPIA && sePuedeCargar(valor)) {
             cargar(valor, "$t0");
@@ -318,14 +317,16 @@ public class TraductorMIPS {
 
     /**
      * Guarda un texto literal en la sección de datos y carga su dirección en
-     * un registro.
+     * un registro. La etiqueta del texto lleva el número del temporal que lo
+     * recibe en el código intermedio.
      *
      * @param literal texto del código intermedio, con sus comillas
+     * @param temporal temporal string que recibe el texto
      * @param registro registro destino
      */
-    private void cargarTexto(String literal, String registro) {
-        contadorTextos++;
-        String nombre = "string." + contadorTextos;
+    private void cargarTexto(String literal, String temporal, String registro) {
+        String numero = temporal.substring(temporal.lastIndexOf('#') + 1);
+        String nombre = "string." + numero;
         datos.append(nombre + ": .asciiz " + literal + "\n");
         texto.append(instruccion("la " + registro + ", " + nombre));
     }

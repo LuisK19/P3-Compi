@@ -144,6 +144,9 @@ public class App {
                 "src/semantico/RecolectorFunciones.java",
                 "src/codigo/GeneradorCodigo.java",
                 "src/codigo/EncabezadoFor.java",
+                "src/mips/NombresMIPS.java",
+                "src/mips/MarcoFuncion.java",
+                "src/mips/TraductorMIPS.java",
                 "src/Analizador.java");
 
         if (resultado != 0) {
