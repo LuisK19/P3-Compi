@@ -44,6 +44,26 @@ public class MarcoFuncion {
         desplazamientos.put(nombre, -tamano);
     }
 
+    /**
+     * Indica si un nombre tiene un lugar en este marco.
+     *
+     * @param nombre nombre del código intermedio
+     * @return {@code true} si es una local o un temporal de la sección
+     */
+    public boolean contiene(String nombre) {
+        return desplazamientos.containsKey(nombre);
+    }
+
+    /**
+     * Devuelve la dirección de un nombre del marco, relativa a $fp.
+     *
+     * @param nombre variable local o temporal registrado en el marco
+     * @return dirección lista para usar en lw o sw
+     */
+    public String ubicacion(String nombre) {
+        return desplazamientos.get(nombre) + "($fp)";
+    }
+
     /** Devuelve cuántos bytes ocupa el marco. */
     public int getTamano() {
         return tamano;

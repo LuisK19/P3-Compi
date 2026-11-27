@@ -14,6 +14,7 @@ public class TraductorMIPS {
     private StringBuilder datos = new StringBuilder();
     private StringBuilder texto = new StringBuilder();
     private MarcoFuncion marco;
+    private int contadorPotencias = 0;
 
     /**
      * Traduce un programa completo por secciones: main, donde se inicializan
@@ -99,9 +100,20 @@ public class TraductorMIPS {
             traducirSalto(linea);
         } else if (linea.startsWith("var#")) {
             traducirDeclaracion(linea);
+        } else if (linea.contains(" = ")) {
+            traducirAsignacion(linea);
         } else {
-            texto.append(instruccion("# pendiente: " + linea));
+            marcarPendiente(linea);
         }
+    }
+
+    /**
+     * Deja como comentario una línea que todavía no se traduce.
+     *
+     * @param linea línea del código intermedio
+     */
+    private void marcarPendiente(String linea) {
+        texto.append(instruccion("# pendiente: " + linea));
     }
 
     /**
@@ -135,6 +147,159 @@ public class TraductorMIPS {
         if (nombre.endsWith("#global")) {
             datos.append(NombresMIPS.convertir(nombre) + ": .word 0\n");
         }
+    }
+
+    /**
+     * Traduce una asignación: la copia de un valor o el resultado de una
+     * operación entera. Los operandos se cargan en $t0 y $t1 y el resultado
+     * queda en $t0 antes de guardarse.
+     *
+     * @param linea asignación del código intermedio
+     */
+    private void traducirAsignacion(String linea) {
+        int posicion = linea.indexOf(" = ");
+        String destino = linea.substring(0, posicion);
+        String[] partes = linea.substring(posicion + " = ".length()).split(" ");
+        if (destino.contains("[")) {
+            marcarPendiente(linea);
+        } else if (partes.length == 1 && sePuedeCargar(partes[0])) {
+            cargar(partes[0], "$t0");
+            guardar("$t0", destino);
+        } else if (partes.length == 3 && esOperacionEntera(destino, partes[1])) {
+            cargar(partes[0], "$t0");
+            cargar(partes[2], "$t1");
+            operar(partes[1]);
+            guardar("$t0", destino);
+        } else {
+            marcarPendiente(linea);
+        }
+    }
+
+    /**
+     * Indica si una asignación es una operación entera: el destino es un
+     * temporal int y el operador es aritmético.
+     *
+     * @param destino nombre que recibe el resultado
+     * @param operador operador de la expresión
+     * @return {@code true} si se traduce con instrucciones enteras
+     */
+    private boolean esOperacionEntera(String destino, String operador) {
+        if (!destino.startsWith("temp#int#")) {
+            return false;
+        }
+        return operador.equals("+") || operador.equals("-") || operador.equals("*")
+                || operador.equals("//") || operador.equals("mod") || operador.equals("pot");
+    }
+
+    /**
+     * Escribe la operación entera entre $t0 y $t1, con el resultado en $t0.
+     *
+     * @param operador operador aritmético del código intermedio
+     */
+    private void operar(String operador) {
+        switch (operador) {
+            case "+":
+                texto.append(instruccion("add $t0, $t0, $t1"));
+                break;
+            case "-":
+                texto.append(instruccion("sub $t0, $t0, $t1"));
+                break;
+            case "*":
+                texto.append(instruccion("mul $t0, $t0, $t1"));
+                break;
+            case "//":
+                texto.append(instruccion("div $t0, $t1"));
+                texto.append(instruccion("mflo $t0"));
+                break;
+            case "mod":
+                texto.append(instruccion("div $t0, $t1"));
+                texto.append(instruccion("mfhi $t0"));
+                break;
+            case "pot":
+                traducirPotencia();
+                break;
+            default:
+                break;
+        }
+    }
+
+    /**
+     * Calcula $t0 elevado a $t1 con un ciclo de multiplicaciones. El resultado
+     * se acumula en $t2 y al final se pasa a $t0.
+     */
+    private void traducirPotencia() {
+        contadorPotencias++;
+        String inicio = "pot." + contadorPotencias;
+        String fin = "pot.end." + contadorPotencias;
+        texto.append(instruccion("li $t2, 1"));
+        texto.append(etiqueta(inicio));
+        texto.append(instruccion("blez $t1, " + fin));
+        texto.append(instruccion("mul $t2, $t2, $t0"));
+        texto.append(instruccion("addi $t1, $t1, -1"));
+        texto.append(instruccion("j " + inicio));
+        texto.append(etiqueta(fin));
+        texto.append(instruccion("move $t0, $t2"));
+    }
+
+    /**
+     * Indica si un operando se puede cargar en un registro con lo que ya
+     * traduce el programa: un literal entero, una variable o un temporal.
+     *
+     * @param operando operando del código intermedio
+     * @return {@code true} si se puede cargar
+     */
+    private boolean sePuedeCargar(String operando) {
+        return esLiteralEntero(operando) || marco.contiene(operando)
+                || operando.endsWith("#global");
+    }
+
+    /**
+     * Indica si un operando es un literal entero, positivo o negativo.
+     *
+     * @param operando operando del código intermedio
+     * @return {@code true} si es un literal entero
+     */
+    private boolean esLiteralEntero(String operando) {
+        return operando.matches("-?[0-9]+");
+    }
+
+    /**
+     * Carga un operando en un registro: un literal con li y una variable o un
+     * temporal con lw.
+     *
+     * @param operando literal, variable o temporal del código intermedio
+     * @param registro registro destino
+     */
+    private void cargar(String operando, String registro) {
+        if (esLiteralEntero(operando)) {
+            texto.append(instruccion("li " + registro + ", " + operando));
+        } else {
+            texto.append(instruccion("lw " + registro + ", " + ubicacion(operando)));
+        }
+    }
+
+    /**
+     * Guarda el valor de un registro en una variable o un temporal.
+     *
+     * @param registro registro con el valor
+     * @param nombre variable o temporal del código intermedio
+     */
+    private void guardar(String registro, String nombre) {
+        texto.append(instruccion("sw " + registro + ", " + ubicacion(nombre)));
+    }
+
+    /**
+     * Devuelve dónde está guardado un nombre: su lugar en el marco si es una
+     * local o un temporal, o su etiqueta en la sección de datos si es global.
+     *
+     * @param nombre variable o temporal del código intermedio
+     * @return dirección lista para usar en lw o sw
+     */
+    private String ubicacion(String nombre) {
+        if (marco.contiene(nombre)) {
+            return marco.ubicacion(nombre);
+        }
+        return NombresMIPS.convertir(nombre);
     }
 
     /**
