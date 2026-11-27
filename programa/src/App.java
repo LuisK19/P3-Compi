@@ -146,6 +146,7 @@ public class App {
                 "src/codigo/EncabezadoFor.java",
                 "src/mips/NombresMIPS.java",
                 "src/mips/MarcoFuncion.java",
+                "src/mips/BloquesBasicos.java",
                 "src/mips/TraductorMIPS.java",
                 "src/Analizador.java");
 

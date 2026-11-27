@@ -24,24 +24,33 @@ public class TraductorMIPS {
     private StringBuilder datos = new StringBuilder();
     private StringBuilder texto = new StringBuilder();
     private MarcoFuncion marco;
+    private BloquesBasicos bloques;
     private int contadorPotencias = 0;
 
     /**
      * Traduce un programa completo por secciones: main, donde se inicializan
-     * las globales, y cada función, cada una con su propio marco.
+     * las globales, y cada función, cada una con su propio marco. Al inicio de
+     * cada bloque básico se escribe un comentario con su número.
      *
      * @param codigoIntermedio código intermedio generado por el parser, sin errores
      * @return código MIPS del programa
      */
     public String traducir(String codigoIntermedio) {
         String[] lineas = codigoIntermedio.split("\n");
+        bloques = new BloquesBasicos(lineas);
         iniciarSeccion("main", lineas, 0);
         for (int i = 0; i < lineas.length; i++) {
             String linea = lineas[i].trim();
+            if (linea.isEmpty()) {
+                continue;
+            }
             if (esInicioDeFuncion(linea)) {
                 String nombre = linea.substring(0, linea.length() - 1);
                 iniciarSeccion(NombresMIPS.convertir(nombre), lineas, i + 1);
             } else {
+                if (bloques.empiezaBloque(linea)) {
+                    texto.append("# bloque basico " + bloques.getNumero() + "\n");
+                }
                 traducirLinea(linea);
             }
         }
@@ -68,6 +77,7 @@ public class TraductorMIPS {
      */
     private void iniciarSeccion(String nombre, String[] lineas, int desde) {
         marco = crearMarco(lineas, desde);
+        bloques.iniciarSeccion();
         texto.append(etiqueta(nombre));
         texto.append(instruccion("move $fp, $sp"));
         if (marco.getTamano() > 0) {
@@ -99,9 +109,6 @@ public class TraductorMIPS {
      * @param linea línea del código intermedio, sin espacios a los lados
      */
     private void traducirLinea(String linea) {
-        if (linea.isEmpty()) {
-            return;
-        }
         if (linea.equals(FIN_PRINCIPAL)) {
             traducirFinPrograma();
         } else if (linea.endsWith(":")) {
