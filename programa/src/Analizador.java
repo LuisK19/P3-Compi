@@ -21,6 +21,10 @@ import src.semantico.RecolectorFunciones;
  * tabla de símbolos y del código intermedio.
  */
 public class Analizador {
+    private static final int ARGUMENTO_ENTRADA = 0;
+    private static final int ARGUMENTO_TOKENS = 1;
+    private static final int ARGUMENTO_TABLA = 2;
+    private static final int ARGUMENTO_CODIGO = 3;
 
     /**
      * Inicia el análisis usando las rutas indicadas en los argumentos.
@@ -36,10 +40,10 @@ public class Analizador {
     public static void main(String[] args) throws IOException {
         usarSalidaUtf8();
 
-        String archivoEntrada = args.length > 0 ? args[0] : "tests/validos/programa_completo.txt";
-        String archivoSalidaTokens = args.length > 1 ? args[1] : "salida/tokens_encontrados.csv";
-        String archivoSalidaTabla = args.length > 2 ? args[2] : "salida/tabla_simbolos.txt";
-        String archivoSalidaCodigo = args.length > 3 ? args[3] : "salida/codigo_intermedio.txt";
+        String archivoEntrada = argumento(args, ARGUMENTO_ENTRADA, "tests/validos/programa_completo.txt");
+        String archivoSalidaTokens = argumento(args, ARGUMENTO_TOKENS, "salida/tokens_encontrados.csv");
+        String archivoSalidaTabla = argumento(args, ARGUMENTO_TABLA, "salida/tabla_simbolos.txt");
+        String archivoSalidaCodigo = argumento(args, ARGUMENTO_CODIGO, "salida/codigo_intermedio.txt");
 
         if (!new File(archivoEntrada).exists()) {
             System.err.println("No se encontro el archivo de entrada: " + archivoEntrada);
@@ -60,6 +64,22 @@ public class Analizador {
         }
 
         ejecutarAnalisisSintactico(archivoEntrada, tokens, archivoSalidaTokens, archivoSalidaTabla, archivoSalidaCodigo);
+    }
+
+    /**
+     * Devuelve un argumento de la línea de comandos, o un valor por defecto si
+     * no se proporcionó.
+     *
+     * @param args argumentos recibidos
+     * @param posicion posición del argumento
+     * @param valorPorDefecto valor que se usa si el argumento no existe
+     * @return argumento o valor por defecto
+     */
+    private static String argumento(String[] args, int posicion, String valorPorDefecto) {
+        if (posicion < args.length) {
+            return args[posicion];
+        }
+        return valorPorDefecto;
     }
 
     /**

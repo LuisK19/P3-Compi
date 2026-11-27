@@ -21,6 +21,9 @@ import src.tabla.SimboloFuncion;
  * abajo en el archivo.
  */
 public class RecolectorFunciones {
+    private static final int DISTANCIA_AL_NOMBRE = 1;
+    private static final int DISTANCIA_AL_PARENTESIS = 2;
+    private static final int DISTANCIA_A_LOS_PARAMETROS = 3;
 
     /**
      * Obtiene las firmas de las funciones declaradas en el archivo.
@@ -81,14 +84,15 @@ public class RecolectorFunciones {
      * @return {@code true} si la posición inicia un encabezado
      */
     private static boolean esEncabezadoFuncion(ArrayList<Symbol> tokens, int posicion) {
-        if (posicion + 2 >= tokens.size() || nombreDeTipo(tokens.get(posicion).sym) == null) {
+        int posicionParentesis = posicion + DISTANCIA_AL_PARENTESIS;
+        if (posicionParentesis >= tokens.size() || nombreDeTipo(tokens.get(posicion).sym) == null) {
             return false;
         }
         if (posicion > 0 && tokens.get(posicion - 1).sym == sym.VAL) {
             return false;
         }
-        return tokens.get(posicion + 1).sym == sym.ID
-                && tokens.get(posicion + 2).sym == sym.PARENTESIS_ABRE;
+        return tokens.get(posicion + DISTANCIA_AL_NOMBRE).sym == sym.ID
+                && tokens.get(posicionParentesis).sym == sym.PARENTESIS_ABRE;
     }
 
     /**
@@ -99,12 +103,12 @@ public class RecolectorFunciones {
      * @return símbolo con el nombre, el tipo y los parámetros de la función
      */
     private static SimboloFuncion leerEncabezado(ArrayList<Symbol> tokens, int posicion) {
-        Symbol tokenNombre = tokens.get(posicion + 1);
+        Symbol tokenNombre = tokens.get(posicion + DISTANCIA_AL_NOMBRE);
         String tipoRetorno = nombreDeTipo(tokens.get(posicion).sym);
         SimboloFuncion funcion = new SimboloFuncion((String) tokenNombre.value, tipoRetorno,
                 tokenNombre.left + 1, tokenNombre.right + 1);
 
-        int actual = posicion + 3;
+        int actual = posicion + DISTANCIA_A_LOS_PARAMETROS;
         while (actual < tokens.size() && tokens.get(actual).sym != sym.PARENTESIS_CIERRA) {
             String tipoParametro = nombreDeTipo(tokens.get(actual).sym);
             if (tipoParametro != null) {

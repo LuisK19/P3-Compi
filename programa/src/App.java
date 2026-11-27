@@ -19,6 +19,7 @@ import javax.tools.ToolProvider;
  */
 public class App {
     private static final String VERSION_JAVA = "14";
+    private static final String PAGINA_CODIGOS_UTF8 = "65001";
     private static final File CARPETA_PROYECTO = new File(System.getProperty("user.dir"));
     private static final File CARPETA_SALIDA = new File(CARPETA_PROYECTO, "out");
     private static final String RUNTIME_CUP =
@@ -49,7 +50,8 @@ public class App {
         System.setErr(new PrintStream(System.err, true, StandardCharsets.UTF_8));
 
         try {
-            new ProcessBuilder("cmd", "/c", "chcp 65001 >nul").inheritIO().start().waitFor();
+            new ProcessBuilder("cmd", "/c", "chcp " + PAGINA_CODIGOS_UTF8 + " >nul")
+                    .inheritIO().start().waitFor();
         } catch (IOException | InterruptedException e) {
             System.err.println("No se pudo cambiar la codificacion de la consola.");
         }
