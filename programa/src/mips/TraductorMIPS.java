@@ -39,9 +39,34 @@ public class TraductorMIPS {
         }
         if (linea.equals(FIN_PRINCIPAL)) {
             traducirFinPrograma();
+        } else if (linea.endsWith(":")) {
+            traducirEtiqueta(linea);
+        } else if (linea.startsWith("goto ")) {
+            traducirSalto(linea);
         } else {
             texto.append(instruccion("# pendiente: " + linea));
         }
+    }
+
+    /**
+     * Traduce una etiqueta, por ejemplo "if#true#1:".
+     *
+     * @param linea etiqueta del código intermedio, con los dos puntos al final
+     */
+    private void traducirEtiqueta(String linea) {
+        String nombre = linea.substring(0, linea.length() - 1);
+        texto.append(etiqueta(NombresMIPS.convertir(nombre)));
+    }
+
+    /**
+     * Traduce un salto incondicional, por ejemplo "goto while#1", a la
+     * instrucción j.
+     *
+     * @param linea salto del código intermedio
+     */
+    private void traducirSalto(String linea) {
+        String destino = linea.substring("goto ".length());
+        texto.append(instruccion("j " + NombresMIPS.convertir(destino)));
     }
 
     /**
