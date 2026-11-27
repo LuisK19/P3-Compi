@@ -4,7 +4,8 @@ package src.mips;
  * Traduce el código intermedio de tres direcciones a código MIPS que se puede
  * correr en QtSpim.
  *
- * <p> Cada línea del código intermedio se traduce por separado. Lo que va en la
+ * <p>
+ * Cada línea del código intermedio se traduce por separado. Lo que va en la
  * sección de datos (globales y textos) se junta aparte de las instrucciones y
  * al final se arma el programa completo.
  */
@@ -28,6 +29,9 @@ public class TraductorMIPS {
     private static final String COMILLA_CARACTER = "'";
     private static final int LARGO_LITERAL_CARACTER = 3;
     private static final int POSICION_CARACTER = 1;
+
+    private static final String PREFIJO_BOOL = "temp#bool#";
+    private static final String PREFIJO_FLOTANTE = "temp#float#";
 
     private StringBuilder datos = new StringBuilder();
     private StringBuilder texto = new StringBuilder();
@@ -209,7 +213,7 @@ public class TraductorMIPS {
 
     /**
      * Traduce una operación de la forma "izquierdo operador derecho" si es
-     * entera; si no, la deja pendiente.
+     * entera o booleana; si no, la deja pendiente.
      *
      * @param linea   asignación completa del código intermedio
      * @param destino nombre que recibe el resultado
@@ -219,7 +223,7 @@ public class TraductorMIPS {
         String izquierdo = partes[0];
         String operador = partes[1];
         String derecho = partes[2];
-        if (esOperacionEntera(destino, operador)) {
+        if (esOperacionEntera(destino, operador) || esOperacionBool(destino, operador, izquierdo)) {
             cargar(izquierdo, "$t0");
             cargar(derecho, "$t1");
             operar(operador);
@@ -243,6 +247,33 @@ public class TraductorMIPS {
         }
         return operador.equals("+") || operador.equals("-") || operador.equals("*")
                 || operador.equals("//") || operador.equals("mod") || operador.equals("pot");
+    }
+
+    /**
+     * Indica si una asignación es una operación que da un bool con
+     * operandos que no son float. Los float se traducen en otra rama.
+     *
+     * @param destino   nombre que recibe el resultado
+     * @param operador  operador de la expresión
+     * @param izquierdo operando izquierdo
+     * @return {@code true} si se traduce con instrucciones enteras
+     */
+    private boolean esOperacionBool(String destino, String operador, String izquierdo) {
+        if (!destino.startsWith(PREFIJO_BOOL) || izquierdo.startsWith(PREFIJO_FLOTANTE)) {
+            return false;
+        }
+        return esRelacional(operador);
+    }
+
+    /**
+     * Indica si un operador es relacional.
+     *
+     * @param operador operador de la expresión
+     * @return {@code true} si compara dos valores
+     */
+    private boolean esRelacional(String operador) {
+        return operador.equals("<") || operador.equals("<=") || operador.equals(">")
+                || operador.equals(">=") || operador.equals("==") || operador.equals("!=");
     }
 
     /**
@@ -271,6 +302,24 @@ public class TraductorMIPS {
                 break;
             case "pot":
                 traducirPotencia();
+                break;
+            case "<":
+                texto.append(instruccion("slt $t0, $t0, $t1"));
+                break;
+            case "<=":
+                texto.append(instruccion("sle $t0, $t0, $t1"));
+                break;
+            case ">":
+                texto.append(instruccion("sgt $t0, $t0, $t1"));
+                break;
+            case ">=":
+                texto.append(instruccion("sge $t0, $t0, $t1"));
+                break;
+            case "==":
+                texto.append(instruccion("seq $t0, $t0, $t1"));
+                break;
+            case "!=":
+                texto.append(instruccion("sne $t0, $t0, $t1"));
                 break;
             default:
                 break;
