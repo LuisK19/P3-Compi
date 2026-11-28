@@ -33,6 +33,11 @@ public class TraductorMIPS {
     private static final String PREFIJO_BOOL = "temp#bool#";
     private static final String PREFIJO_FLOTANTE = "temp#float#";
 
+    private static final String OPERADOR_Y = "\u03bb";
+    private static final String OPERADOR_O = "\u03b8";
+    private static final String OPERADOR_NO = "\u03a3";
+    private static final int PARTES_DE_UNA_NEGACION = 2;
+
     private StringBuilder datos = new StringBuilder();
     private StringBuilder texto = new StringBuilder();
     private MarcoFuncion marco;
@@ -204,6 +209,8 @@ public class TraductorMIPS {
                 || (partes.length == PARTES_DE_UNA_COPIA && sePuedeCargar(valor))) {
             cargar(valor, "$t0");
             guardar("$t0", destino);
+        } else if (partes.length == PARTES_DE_UNA_NEGACION && partes[0].equals(OPERADOR_NO)) {
+            traducirNegacion(destino, partes[1]);
         } else if (partes.length == PARTES_DE_UNA_OPERACION) {
             traducirOperacion(linea, destino, partes);
         } else {
@@ -262,7 +269,7 @@ public class TraductorMIPS {
         if (!destino.startsWith(PREFIJO_BOOL) || izquierdo.startsWith(PREFIJO_FLOTANTE)) {
             return false;
         }
-        return esRelacional(operador);
+        return esRelacional(operador) || operador.equals(OPERADOR_Y) || operador.equals(OPERADOR_O);
     }
 
     /**
@@ -321,6 +328,12 @@ public class TraductorMIPS {
             case "!=":
                 texto.append(instruccion("sne $t0, $t0, $t1"));
                 break;
+            case OPERADOR_Y:
+                texto.append(instruccion("and $t0, $t0, $t1"));
+                break;
+            case OPERADOR_O:
+                texto.append(instruccion("or $t0, $t0, $t1"));
+                break;
             default:
                 break;
         }
@@ -342,6 +355,18 @@ public class TraductorMIPS {
         texto.append(instruccion("j " + inicio));
         texto.append(etiqueta(fin));
         texto.append(instruccion("move $t0, $t2"));
+    }
+
+    /**
+     * Traduce la negación lógica: invierte el bit del bool.
+     *
+     * @param destino  temporal bool que recibe el resultado
+     * @param operando temporal bool negado
+     */
+    private void traducirNegacion(String destino, String operando) {
+        cargar(operando, "$t0");
+        texto.append(instruccion("xori $t0, $t0, " + VALOR_VERDADERO));
+        guardar("$t0", destino);
     }
 
     /**
