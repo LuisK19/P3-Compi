@@ -36,6 +36,11 @@ public class TraductorMIPS {
     private static final int POSICION_CONDICION = 1;
     private static final int POSICION_DESTINO_SALTO = 3;
 
+    private static final String ETIQUETA_BOOL_VERDADERO = "bool.true";
+    private static final String ETIQUETA_BOOL_FALSO = "bool.false";
+    private static final String TEXTO_VERDADERO = "\"true\"";
+    private static final String TEXTO_FALSO = "\"false\"";
+
     private static final String OPERADOR_Y = "\u03bb";
     private static final String OPERADOR_O = "\u03b8";
     private static final String OPERADOR_NO = "\u03a3";
@@ -46,6 +51,8 @@ public class TraductorMIPS {
     private MarcoFuncion marco;
     private BloquesBasicos bloques;
     private int contadorPotencias = 0;
+    private int contadorEscriturasBool = 0;
+    private boolean textosBoolGuardados = false;
 
     /**
      * Traduce un programa completo por secciones: main, donde se inicializan
@@ -497,6 +504,8 @@ public class TraductorMIPS {
             escribirValor(nombre, LLAMADA_ESCRIBIR_ENTERO);
         } else if (tipo.equals("string")) {
             escribirValor(nombre, LLAMADA_ESCRIBIR_TEXTO);
+        } else if (tipo.equals("bool")) {
+            escribirBool(nombre);
         } else {
             marcarPendiente(linea);
         }
@@ -512,8 +521,49 @@ public class TraductorMIPS {
     private void escribirValor(String nombre, int codigoLlamada) {
         cargar(nombre, "$a0");
         llamarAlSistema(codigoLlamada);
+        escribirSaltoDeLinea();
+    }
+
+    /**
+     * Escribe un salto de línea en la consola.
+     */
+    private void escribirSaltoDeLinea() {
         texto.append(instruccion("li $a0, " + CARACTER_SALTO_DE_LINEA));
         llamarAlSistema(LLAMADA_ESCRIBIR_CARACTER);
+    }
+
+    /**
+     * Escribe true o false según el valor de un bool, seguido de un salto de
+     * línea.
+     *
+     * @param nombre variable o temporal bool del código intermedio
+     */
+    private void escribirBool(String nombre) {
+        guardarTextosBool();
+        contadorEscriturasBool++;
+        String falso = "write.bool.false." + contadorEscriturasBool;
+        String fin = "write.bool.end." + contadorEscriturasBool;
+        cargar(nombre, "$t0");
+        texto.append(instruccion("beq $t0, $zero, " + falso));
+        texto.append(instruccion("la $a0, " + ETIQUETA_BOOL_VERDADERO));
+        texto.append(instruccion("j " + fin));
+        texto.append(etiqueta(falso));
+        texto.append(instruccion("la $a0, " + ETIQUETA_BOOL_FALSO));
+        texto.append(etiqueta(fin));
+        llamarAlSistema(LLAMADA_ESCRIBIR_TEXTO);
+        escribirSaltoDeLinea();
+    }
+
+    /**
+     * Guarda en la sección de datos los textos true y false, una sola vez.
+     */
+    private void guardarTextosBool() {
+        if (textosBoolGuardados) {
+            return;
+        }
+        datos.append(ETIQUETA_BOOL_VERDADERO + ": .asciiz " + TEXTO_VERDADERO + "\n");
+        datos.append(ETIQUETA_BOOL_FALSO + ": .asciiz " + TEXTO_FALSO + "\n");
+        textosBoolGuardados = true;
     }
 
     /**
