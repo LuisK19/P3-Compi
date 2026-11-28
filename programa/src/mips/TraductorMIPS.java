@@ -33,6 +33,9 @@ public class TraductorMIPS {
     private static final String PREFIJO_BOOL = "temp#bool#";
     private static final String PREFIJO_FLOTANTE = "temp#float#";
 
+    private static final int POSICION_CONDICION = 1;
+    private static final int POSICION_DESTINO_SALTO = 3;
+
     private static final String OPERADOR_Y = "\u03bb";
     private static final String OPERADOR_O = "\u03b8";
     private static final String OPERADOR_NO = "\u03a3";
@@ -132,6 +135,8 @@ public class TraductorMIPS {
             traducirEtiqueta(linea);
         } else if (linea.startsWith("goto ")) {
             traducirSalto(linea);
+        } else if (linea.startsWith("if ")) {
+            traducirSaltoCondicional(linea);
         } else if (linea.startsWith("var#")) {
             traducirDeclaracion(linea);
         } else if (linea.startsWith("write#")) {
@@ -172,6 +177,18 @@ public class TraductorMIPS {
     private void traducirSalto(String linea) {
         String destino = linea.substring("goto ".length());
         texto.append(instruccion("j " + NombresMIPS.convertir(destino)));
+    }
+
+    /**
+     * Traduce "if t goto L": salta a L si el bool t no es cero.
+     *
+     * @param linea salto condicional del código intermedio
+     */
+    private void traducirSaltoCondicional(String linea) {
+        String[] partes = linea.split(" ");
+        String destino = NombresMIPS.convertir(partes[POSICION_DESTINO_SALTO]);
+        cargar(partes[POSICION_CONDICION], "$t0");
+        texto.append(instruccion("bne $t0, $zero, " + destino));
     }
 
     /**
