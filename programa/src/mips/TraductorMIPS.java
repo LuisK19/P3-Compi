@@ -61,6 +61,7 @@ public class TraductorMIPS {
     private MarcoFuncion marco;
     private BloquesBasicos bloques;
     private HashMap<String, String> etiquetasFunciones = new HashMap<>();
+    private String etiquetaSalidaFuncion;
     private int parametrosCopiados = 0;
     private int contadorPotencias = 0;
     private int contadorEscriturasBool = 0;
@@ -137,6 +138,7 @@ public class TraductorMIPS {
     private void iniciarSeccion(String nombreSeccion, String[] lineas, int posicionInicio) {
         marco = crearMarco(lineas, posicionInicio);
         parametrosCopiados = 0;
+        etiquetaSalidaFuncion = nombreSeccion + NombresMIPS.convertir(SUFIJO_FIN_FUNCION);
         bloques.iniciarSeccion();
         texto.append(etiqueta(nombreSeccion));
         if (!nombreSeccion.equals(SECCION_GLOBALES)) {
@@ -205,6 +207,8 @@ public class TraductorMIPS {
             traducirArgumento(linea);
         } else if (linea.startsWith("call ")) {
             traducirLlamada(linea);
+        } else if (linea.startsWith("return ")) {
+            traducirRetorno(linea);
         } else if (linea.contains(" = ")) {
             traducirAsignacion(linea);
         } else {
@@ -308,6 +312,18 @@ public class TraductorMIPS {
         if (cantidadArgumentos > 0) {
             texto.append(instruccion("addi $sp, $sp, " + TAMANO_PALABRA * cantidadArgumentos));
         }
+    }
+
+    /**
+     * Traduce "return t": deja el valor de t en $v0 y salta a la etiqueta de
+     * salida de la función.
+     *
+     * @param linea retorno del código intermedio
+     */
+    private void traducirRetorno(String linea) {
+        String valorRetorno = linea.substring("return ".length());
+        cargar(valorRetorno, "$v0");
+        texto.append(instruccion("j " + etiquetaSalidaFuncion));
     }
 
     /**

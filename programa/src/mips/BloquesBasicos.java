@@ -10,6 +10,8 @@ import java.util.HashSet;
  * <p>Las líneas se revisan en orden, una por una, mientras se traducen.
  */
 public class BloquesBasicos {
+    private static final String SUFIJO_FIN_FUNCION = "#end";
+
     private HashSet<String> etiquetasDestino = new HashSet<>();
     private int numeroBloque = 0;
     private boolean vieneDeUnSalto = false;
@@ -17,14 +19,19 @@ public class BloquesBasicos {
 
     /**
      * Prepara la identificación anotando todas las etiquetas a las que salta
-     * algún goto.
+     * algún goto, y el final de cada función que tiene un return.
      *
      * @param lineas todas las líneas del código intermedio
      */
     public BloquesBasicos(String[] lineas) {
+        String funcionActual = "";
         for (String lineaOriginal : lineas) {
             String linea = lineaOriginal.trim();
-            if (esSalto(linea)) {
+            if (linea.startsWith("funcion#") && esEtiqueta(linea)) {
+                funcionActual = linea.substring(0, linea.length() - 1);
+            } else if (linea.startsWith("return ")) {
+                etiquetasDestino.add(funcionActual + SUFIJO_FIN_FUNCION);
+            } else if (esSalto(linea)) {
                 int posicionDestino = linea.indexOf("goto ") + "goto ".length();
                 etiquetasDestino.add(linea.substring(posicionDestino));
             }
@@ -66,27 +73,30 @@ public class BloquesBasicos {
     }
 
     /**
-     * Indica si una línea es un salto: goto o if con goto.
+     * Indica si una línea es un salto: goto, if con goto o return, que salta
+     * al final de la función.
      *
      * @param linea línea del código intermedio
      * @return {@code true} si es un salto condicional o incondicional
      */
     private boolean esSalto(String linea) {
-        return linea.startsWith("goto ") || (linea.startsWith("if ") && linea.contains(" goto "));
+        return linea.startsWith("goto ") || linea.startsWith("return ")
+                || (linea.startsWith("if ") && linea.contains(" goto "));
     }
 
     /**
-     * Indica si una línea es una etiqueta a la que salta algún goto.
+     * Indica si una línea es una etiqueta a la que salta algún goto, o el
+     * final de una función al que salta algún return.
      *
      * @param linea línea del código intermedio
      * @return {@code true} si es destino de un salto
      */
     private boolean esDestino(String linea) {
-        if (!esEtiqueta(linea)) {
-            return false;
+        if (esEtiqueta(linea)) {
+            String nombreEtiqueta = linea.substring(0, linea.length() - 1);
+            return etiquetasDestino.contains(nombreEtiqueta);
         }
-        String nombreEtiqueta = linea.substring(0, linea.length() - 1);
-        return etiquetasDestino.contains(nombreEtiqueta);
+        return etiquetasDestino.contains(linea);
     }
 
     /**
