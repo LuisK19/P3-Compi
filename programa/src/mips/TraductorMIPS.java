@@ -4,7 +4,8 @@ package src.mips;
  * Traduce el código intermedio de tres direcciones a código MIPS que se puede
  * correr en QtSpim.
  *
- * <p>Cada línea del código intermedio se traduce por separado. Lo que va en la
+ * <p>
+ * Cada línea del código intermedio se traduce por separado. Lo que va en la
  * sección de datos (globales y textos) se junta aparte de las instrucciones y
  * al final se arma el programa completo.
  */
@@ -21,11 +22,37 @@ public class TraductorMIPS {
     private static final int PARTES_DE_UNA_COPIA = 1;
     private static final int PARTES_DE_UNA_OPERACION = 3;
 
+    private static final String LITERAL_VERDADERO = "true";
+    private static final String LITERAL_FALSO = "false";
+    private static final int VALOR_VERDADERO = 1;
+    private static final int VALOR_FALSO = 0;
+    private static final String COMILLA_CARACTER = "'";
+    private static final int LARGO_LITERAL_CARACTER = 3;
+    private static final int POSICION_CARACTER = 1;
+
+    private static final String PREFIJO_BOOL = "temp#bool#";
+    private static final String PREFIJO_FLOTANTE = "temp#float#";
+
+    private static final int POSICION_CONDICION = 1;
+    private static final int POSICION_DESTINO_SALTO = 3;
+
+    private static final String ETIQUETA_BOOL_VERDADERO = "bool.true";
+    private static final String ETIQUETA_BOOL_FALSO = "bool.false";
+    private static final String TEXTO_VERDADERO = "\"true\"";
+    private static final String TEXTO_FALSO = "\"false\"";
+
+    private static final String OPERADOR_Y = "\u03bb";
+    private static final String OPERADOR_O = "\u03b8";
+    private static final String OPERADOR_NO = "\u03a3";
+    private static final int PARTES_DE_UNA_NEGACION = 2;
+
     private StringBuilder datos = new StringBuilder();
     private StringBuilder texto = new StringBuilder();
     private MarcoFuncion marco;
     private BloquesBasicos bloques;
     private int contadorPotencias = 0;
+    private int contadorEscriturasBool = 0;
+    private boolean textosBoolGuardados = false;
 
     /**
      * Traduce un programa completo por secciones: main, donde se inicializan
@@ -73,7 +100,7 @@ public class TraductorMIPS {
      *
      * @param nombre nombre de la sección en MIPS
      * @param lineas todas las líneas del código intermedio
-     * @param desde posición de la primera línea de la sección
+     * @param desde  posición de la primera línea de la sección
      */
     private void iniciarSeccion(String nombre, String[] lineas, int desde) {
         marco = crearMarco(lineas, desde);
@@ -90,7 +117,7 @@ public class TraductorMIPS {
      * función o el final del código.
      *
      * @param lineas todas las líneas del código intermedio
-     * @param desde posición de la primera línea de la sección
+     * @param desde  posición de la primera línea de la sección
      * @return marco con las locales y los temporales de la sección
      */
     private MarcoFuncion crearMarco(String[] lineas, int desde) {
@@ -115,6 +142,8 @@ public class TraductorMIPS {
             traducirEtiqueta(linea);
         } else if (linea.startsWith("goto ")) {
             traducirSalto(linea);
+        } else if (linea.startsWith("if ")) {
+            traducirSaltoCondicional(linea);
         } else if (linea.startsWith("var#")) {
             traducirDeclaracion(linea);
         } else if (linea.startsWith("write#")) {
@@ -158,6 +187,18 @@ public class TraductorMIPS {
     }
 
     /**
+     * Traduce "if t goto L": salta a L si el bool t no es cero.
+     *
+     * @param linea salto condicional del código intermedio
+     */
+    private void traducirSaltoCondicional(String linea) {
+        String[] partes = linea.split(" ");
+        String destino = NombresMIPS.convertir(partes[POSICION_DESTINO_SALTO]);
+        cargar(partes[POSICION_CONDICION], "$t0");
+        texto.append(instruccion("bne $t0, $zero, " + destino));
+    }
+
+    /**
      * Traduce la declaración de una variable. Una global se reserva en la
      * sección de datos con valor inicial cero; una local no genera código.
      *
@@ -173,7 +214,8 @@ public class TraductorMIPS {
     /**
      * Traduce una asignación: la copia de un valor, un texto literal o el
      * resultado de una operación entera. Los operandos se cargan en $t0 y $t1
-     * y el resultado queda en $t0 antes de guardarse.
+     * y el resultado queda en $t0 antes de guardarse. El literal char se
+     * reconoce antes de separar la línea, porque ' ' contiene un espacio.
      *
      * @param linea asignación del código intermedio
      */
@@ -187,9 +229,12 @@ public class TraductorMIPS {
         } else if (valor.startsWith("\"")) {
             cargarTexto(valor, destino, "$t0");
             guardar("$t0", destino);
-        } else if (partes.length == PARTES_DE_UNA_COPIA && sePuedeCargar(valor)) {
+        } else if (esLiteralCaracter(valor)
+                || (partes.length == PARTES_DE_UNA_COPIA && sePuedeCargar(valor))) {
             cargar(valor, "$t0");
             guardar("$t0", destino);
+        } else if (partes.length == PARTES_DE_UNA_NEGACION && partes[0].equals(OPERADOR_NO)) {
+            traducirNegacion(destino, partes[1]);
         } else if (partes.length == PARTES_DE_UNA_OPERACION) {
             traducirOperacion(linea, destino, partes);
         } else {
@@ -199,17 +244,17 @@ public class TraductorMIPS {
 
     /**
      * Traduce una operación de la forma "izquierdo operador derecho" si es
-     * entera; si no, la deja pendiente.
+     * entera o booleana; si no, la deja pendiente.
      *
-     * @param linea asignación completa del código intermedio
+     * @param linea   asignación completa del código intermedio
      * @param destino nombre que recibe el resultado
-     * @param partes operando izquierdo, operador y operando derecho
+     * @param partes  operando izquierdo, operador y operando derecho
      */
     private void traducirOperacion(String linea, String destino, String[] partes) {
         String izquierdo = partes[0];
         String operador = partes[1];
         String derecho = partes[2];
-        if (esOperacionEntera(destino, operador)) {
+        if (esOperacionEntera(destino, operador) || esOperacionBool(destino, operador, izquierdo)) {
             cargar(izquierdo, "$t0");
             cargar(derecho, "$t1");
             operar(operador);
@@ -223,7 +268,7 @@ public class TraductorMIPS {
      * Indica si una asignación es una operación entera: el destino es un
      * temporal int y el operador es aritmético.
      *
-     * @param destino nombre que recibe el resultado
+     * @param destino  nombre que recibe el resultado
      * @param operador operador de la expresión
      * @return {@code true} si se traduce con instrucciones enteras
      */
@@ -233,6 +278,33 @@ public class TraductorMIPS {
         }
         return operador.equals("+") || operador.equals("-") || operador.equals("*")
                 || operador.equals("//") || operador.equals("mod") || operador.equals("pot");
+    }
+
+    /**
+     * Indica si una asignación es una operación que da un bool con
+     * operandos que no son float. Los float se traducen en otra rama.
+     *
+     * @param destino   nombre que recibe el resultado
+     * @param operador  operador de la expresión
+     * @param izquierdo operando izquierdo
+     * @return {@code true} si se traduce con instrucciones enteras
+     */
+    private boolean esOperacionBool(String destino, String operador, String izquierdo) {
+        if (!destino.startsWith(PREFIJO_BOOL) || izquierdo.startsWith(PREFIJO_FLOTANTE)) {
+            return false;
+        }
+        return esRelacional(operador) || operador.equals(OPERADOR_Y) || operador.equals(OPERADOR_O);
+    }
+
+    /**
+     * Indica si un operador es relacional.
+     *
+     * @param operador operador de la expresión
+     * @return {@code true} si compara dos valores
+     */
+    private boolean esRelacional(String operador) {
+        return operador.equals("<") || operador.equals("<=") || operador.equals(">")
+                || operador.equals(">=") || operador.equals("==") || operador.equals("!=");
     }
 
     /**
@@ -262,6 +334,30 @@ public class TraductorMIPS {
             case "pot":
                 traducirPotencia();
                 break;
+            case "<":
+                texto.append(instruccion("slt $t0, $t0, $t1"));
+                break;
+            case "<=":
+                texto.append(instruccion("sle $t0, $t0, $t1"));
+                break;
+            case ">":
+                texto.append(instruccion("sgt $t0, $t0, $t1"));
+                break;
+            case ">=":
+                texto.append(instruccion("sge $t0, $t0, $t1"));
+                break;
+            case "==":
+                texto.append(instruccion("seq $t0, $t0, $t1"));
+                break;
+            case "!=":
+                texto.append(instruccion("sne $t0, $t0, $t1"));
+                break;
+            case OPERADOR_Y:
+                texto.append(instruccion("and $t0, $t0, $t1"));
+                break;
+            case OPERADOR_O:
+                texto.append(instruccion("or $t0, $t0, $t1"));
+                break;
             default:
                 break;
         }
@@ -286,14 +382,28 @@ public class TraductorMIPS {
     }
 
     /**
+     * Traduce la negación lógica: invierte el bit del bool.
+     *
+     * @param destino  temporal bool que recibe el resultado
+     * @param operando temporal bool negado
+     */
+    private void traducirNegacion(String destino, String operando) {
+        cargar(operando, "$t0");
+        texto.append(instruccion("xori $t0, $t0, " + VALOR_VERDADERO));
+        guardar("$t0", destino);
+    }
+
+    /**
      * Indica si un operando se puede cargar en un registro con lo que ya
-     * traduce el programa: un literal entero, una variable o un temporal.
+     * traduce el programa: un literal entero, bool o char, una variable o un
+     * temporal.
      *
      * @param operando operando del código intermedio
      * @return {@code true} si se puede cargar
      */
     private boolean sePuedeCargar(String operando) {
-        return esLiteralEntero(operando) || marco.contiene(operando)
+        return esLiteralEntero(operando) || esLiteralBool(operando)
+                || esLiteralCaracter(operando) || marco.contiene(operando)
                 || operando.endsWith("#global");
     }
 
@@ -308,8 +418,45 @@ public class TraductorMIPS {
     }
 
     /**
+     * Indica si un operando es el literal true o false.
+     *
+     * @param operando operando del código intermedio
+     * @return {@code true} si es un literal bool
+     */
+    private boolean esLiteralBool(String operando) {
+        return operando.equals(LITERAL_VERDADERO) || operando.equals(LITERAL_FALSO);
+    }
+
+    /**
+     * Indica si un operando es un literal char: un carácter entre comillas
+     * simples, incluido el espacio.
+     *
+     * @param operando operando del código intermedio
+     * @return {@code true} si es un literal char
+     */
+    private boolean esLiteralCaracter(String operando) {
+        return operando.length() == LARGO_LITERAL_CARACTER
+                && operando.startsWith(COMILLA_CARACTER)
+                && operando.endsWith(COMILLA_CARACTER);
+    }
+
+    /**
+     * Devuelve el valor numérico de un literal bool.
+     *
+     * @param literal true o false del código intermedio
+     * @return 1 si es true, 0 si es false
+     */
+    private int valorDeBool(String literal) {
+        if (literal.equals(LITERAL_VERDADERO)) {
+            return VALOR_VERDADERO;
+        }
+        return VALOR_FALSO;
+    }
+
+    /**
      * Carga un operando en un registro: un literal con li y una variable o un
-     * temporal con lw.
+     * temporal con lw. Un bool se carga como 0 o 1 y un char como su código
+     * ASCII.
      *
      * @param operando literal, variable o temporal del código intermedio
      * @param registro registro destino
@@ -317,6 +464,11 @@ public class TraductorMIPS {
     private void cargar(String operando, String registro) {
         if (esLiteralEntero(operando)) {
             texto.append(instruccion("li " + registro + ", " + operando));
+        } else if (esLiteralBool(operando)) {
+            texto.append(instruccion("li " + registro + ", " + valorDeBool(operando)));
+        } else if (esLiteralCaracter(operando)) {
+            int codigo = operando.charAt(POSICION_CARACTER);
+            texto.append(instruccion("li " + registro + ", " + codigo));
         } else {
             texto.append(instruccion("lw " + registro + ", " + ubicacion(operando)));
         }
@@ -327,7 +479,7 @@ public class TraductorMIPS {
      * un registro. La etiqueta del texto lleva el número del temporal que lo
      * recibe en el código intermedio.
      *
-     * @param literal texto del código intermedio, con sus comillas
+     * @param literal  texto del código intermedio, con sus comillas
      * @param temporal temporal string que recibe el texto
      * @param registro registro destino
      */
@@ -352,6 +504,8 @@ public class TraductorMIPS {
             escribirValor(nombre, LLAMADA_ESCRIBIR_ENTERO);
         } else if (tipo.equals("string")) {
             escribirValor(nombre, LLAMADA_ESCRIBIR_TEXTO);
+        } else if (tipo.equals("bool")) {
+            escribirBool(nombre);
         } else {
             marcarPendiente(linea);
         }
@@ -361,14 +515,55 @@ public class TraductorMIPS {
      * Escribe en la consola el valor de una variable o un temporal y después
      * un salto de línea.
      *
-     * @param nombre variable o temporal del código intermedio
+     * @param nombre        variable o temporal del código intermedio
      * @param codigoLlamada código de la llamada al sistema que escribe el valor
      */
     private void escribirValor(String nombre, int codigoLlamada) {
         cargar(nombre, "$a0");
         llamarAlSistema(codigoLlamada);
+        escribirSaltoDeLinea();
+    }
+
+    /**
+     * Escribe un salto de línea en la consola.
+     */
+    private void escribirSaltoDeLinea() {
         texto.append(instruccion("li $a0, " + CARACTER_SALTO_DE_LINEA));
         llamarAlSistema(LLAMADA_ESCRIBIR_CARACTER);
+    }
+
+    /**
+     * Escribe true o false según el valor de un bool, seguido de un salto de
+     * línea.
+     *
+     * @param nombre variable o temporal bool del código intermedio
+     */
+    private void escribirBool(String nombre) {
+        guardarTextosBool();
+        contadorEscriturasBool++;
+        String falso = "write.bool.false." + contadorEscriturasBool;
+        String fin = "write.bool.end." + contadorEscriturasBool;
+        cargar(nombre, "$t0");
+        texto.append(instruccion("beq $t0, $zero, " + falso));
+        texto.append(instruccion("la $a0, " + ETIQUETA_BOOL_VERDADERO));
+        texto.append(instruccion("j " + fin));
+        texto.append(etiqueta(falso));
+        texto.append(instruccion("la $a0, " + ETIQUETA_BOOL_FALSO));
+        texto.append(etiqueta(fin));
+        llamarAlSistema(LLAMADA_ESCRIBIR_TEXTO);
+        escribirSaltoDeLinea();
+    }
+
+    /**
+     * Guarda en la sección de datos los textos true y false, una sola vez.
+     */
+    private void guardarTextosBool() {
+        if (textosBoolGuardados) {
+            return;
+        }
+        datos.append(ETIQUETA_BOOL_VERDADERO + ": .asciiz " + TEXTO_VERDADERO + "\n");
+        datos.append(ETIQUETA_BOOL_FALSO + ": .asciiz " + TEXTO_FALSO + "\n");
+        textosBoolGuardados = true;
     }
 
     /**
@@ -403,7 +598,7 @@ public class TraductorMIPS {
      * Guarda el valor de un registro en una variable o un temporal.
      *
      * @param registro registro con el valor
-     * @param nombre variable o temporal del código intermedio
+     * @param nombre   variable o temporal del código intermedio
      */
     private void guardar(String registro, String nombre) {
         texto.append(instruccion("sw " + registro + ", " + ubicacion(nombre)));
