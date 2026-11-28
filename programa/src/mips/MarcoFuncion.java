@@ -14,16 +14,20 @@ public class MarcoFuncion {
 
     private HashMap<String, Integer> desplazamientos = new HashMap<>();
     private int tamano = 0;
+    private int cantidadParametros = 0;
 
     /**
-     * Anota los nombres que crea una línea de la sección: la variable de un
-     * var# local o el temporal que recibe un valor. Las demás líneas no crean
-     * nombres.
+     * Anota los nombres que crea una línea de la sección: un parámetro, la
+     * variable de un var# local o el temporal que recibe un valor. Las demás
+     * líneas no crean nombres.
      *
      * @param linea línea del código intermedio, sin espacios a los lados
      */
     public void registrar(String linea) {
-        if (linea.startsWith("var#")) {
+        if (linea.startsWith("param#")) {
+            cantidadParametros++;
+            agregar(linea.split(" ")[1]);
+        } else if (linea.startsWith("var#")) {
             agregar(linea.split(" ")[1]);
         } else if (linea.startsWith("temp#") && linea.contains(" = ")) {
             agregar(linea.substring(0, linea.indexOf(" = ")));
@@ -34,38 +38,43 @@ public class MarcoFuncion {
      * Le asigna un lugar en el marco a un nombre, si es local y todavía no lo
      * tiene.
      *
-     * @param nombre variable local o temporal
+     * @param nombreNuevo variable local o temporal
      */
-    private void agregar(String nombre) {
-        if (nombre.endsWith("#global") || desplazamientos.containsKey(nombre)) {
+    private void agregar(String nombreNuevo) {
+        if (nombreNuevo.endsWith("#global") || desplazamientos.containsKey(nombreNuevo)) {
             return;
         }
         tamano += TAMANO_PALABRA;
-        desplazamientos.put(nombre, -tamano);
+        desplazamientos.put(nombreNuevo, -tamano);
     }
 
     /**
      * Indica si un nombre tiene un lugar en este marco.
      *
-     * @param nombre nombre del código intermedio
+     * @param nombreBuscado nombre del código intermedio
      * @return {@code true} si es una local o un temporal de la sección
      */
-    public boolean contiene(String nombre) {
-        return desplazamientos.containsKey(nombre);
+    public boolean contiene(String nombreBuscado) {
+        return desplazamientos.containsKey(nombreBuscado);
     }
 
     /**
      * Devuelve la dirección de un nombre del marco, relativa a $fp.
      *
-     * @param nombre variable local o temporal registrado en el marco
+     * @param nombreBuscado variable local o temporal registrado en el marco
      * @return dirección lista para usar en lw o sw
      */
-    public String ubicacion(String nombre) {
-        return desplazamientos.get(nombre) + "($fp)";
+    public String ubicacion(String nombreBuscado) {
+        return desplazamientos.get(nombreBuscado) + "($fp)";
     }
 
     /** Devuelve cuántos bytes ocupa el marco. */
     public int getTamano() {
         return tamano;
+    }
+
+    /** Devuelve cuántos parámetros recibe la función. */
+    public int getCantidadParametros() {
+        return cantidadParametros;
     }
 }

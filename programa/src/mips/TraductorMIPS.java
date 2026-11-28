@@ -1,16 +1,26 @@
 package src.mips;
 
+import java.util.HashMap;
+
 /**
  * Traduce el código intermedio de tres direcciones a código MIPS que se puede
  * correr en QtSpim.
  *
- * <p>
- * Cada línea del código intermedio se traduce por separado. Lo que va en la
+ * <p>Cada línea del código intermedio se traduce por separado. Lo que va en la
  * sección de datos (globales y textos) se junta aparte de las instrucciones y
  * al final se arma el programa completo.
  */
 public class TraductorMIPS {
     private static final String FIN_PRINCIPAL = "funcion#void#principal#end";
+    private static final String SECCION_GLOBALES = "main";
+    private static final String SUFIJO_FIN_FUNCION = "#end";
+
+    private static final int ESPACIO_ENLACE = 8;
+    private static final int POSICION_RA = 4;
+    private static final int POSICION_FP = 0;
+    private static final int TAMANO_PALABRA = 4;
+    private static final int PARAMETROS_EN_REGISTROS = 4;
+    private static final String TOPE_PILA = "0($sp)";
 
     private static final int LLAMADA_ESCRIBIR_ENTERO = 1;
     private static final int LLAMADA_ESCRIBIR_TEXTO = 4;
@@ -50,6 +60,9 @@ public class TraductorMIPS {
     private StringBuilder texto = new StringBuilder();
     private MarcoFuncion marco;
     private BloquesBasicos bloques;
+    private HashMap<String, String> etiquetasFunciones = new HashMap<>();
+    private String etiquetaSalidaFuncion;
+    private int parametrosCopiados = 0;
     private int contadorPotencias = 0;
     private int contadorEscriturasBool = 0;
     private boolean textosBoolGuardados = false;
@@ -65,23 +78,42 @@ public class TraductorMIPS {
     public String traducir(String codigoIntermedio) {
         String[] lineas = codigoIntermedio.split("\n");
         bloques = new BloquesBasicos(lineas);
-        iniciarSeccion("main", lineas, 0);
-        for (int i = 0; i < lineas.length; i++) {
-            String linea = lineas[i].trim();
+        anotarFunciones(lineas);
+        iniciarSeccion(SECCION_GLOBALES, lineas, 0);
+        for (int numeroLinea = 0; numeroLinea < lineas.length; numeroLinea++) {
+            String linea = lineas[numeroLinea].trim();
             if (linea.isEmpty()) {
                 continue;
             }
             if (esInicioDeFuncion(linea)) {
-                String nombre = linea.substring(0, linea.length() - 1);
-                iniciarSeccion(NombresMIPS.convertir(nombre), lineas, i + 1);
+                String etiquetaIntermedia = linea.substring(0, linea.length() - 1);
+                iniciarSeccion(NombresMIPS.convertir(etiquetaIntermedia), lineas, numeroLinea + 1);
             } else {
                 if (bloques.empiezaBloque(linea)) {
-                    texto.append("# bloque basico " + bloques.getNumero() + "\n");
+                    texto.append("# bloque basico " + bloques.getNumeroBloque() + "\n");
                 }
                 traducirLinea(linea);
             }
         }
         return ".data\n" + datos + "\n.text\n.globl main\n" + texto;
+    }
+
+    /**
+     * Anota la etiqueta MIPS de cada función según su nombre, porque una
+     * llamada del código intermedio solo trae el nombre.
+     *
+     * @param lineas todas las líneas del código intermedio
+     */
+    private void anotarFunciones(String[] lineas) {
+        for (String lineaOriginal : lineas) {
+            String linea = lineaOriginal.trim();
+            if (esInicioDeFuncion(linea)) {
+                String etiquetaIntermedia = linea.substring(0, linea.length() - 1);
+                int posicionUltimoNumeral = etiquetaIntermedia.lastIndexOf('#');
+                String nombreFuncion = etiquetaIntermedia.substring(posicionUltimoNumeral + 1);
+                etiquetasFunciones.put(nombreFuncion, NombresMIPS.convertir(etiquetaIntermedia));
+            }
+        }
     }
 
     /**
@@ -96,16 +128,22 @@ public class TraductorMIPS {
 
     /**
      * Empieza una sección: arma su marco, escribe su etiqueta y reserva el
-     * espacio en la pila.
+     * espacio en la pila. Una función además guarda $ra y el $fp de quien la
+     * llamó.
      *
-     * @param nombre nombre de la sección en MIPS
+     * @param nombreSeccion nombre de la sección en MIPS
      * @param lineas todas las líneas del código intermedio
-     * @param desde  posición de la primera línea de la sección
+     * @param posicionInicio posición de la primera línea de la sección
      */
-    private void iniciarSeccion(String nombre, String[] lineas, int desde) {
-        marco = crearMarco(lineas, desde);
+    private void iniciarSeccion(String nombreSeccion, String[] lineas, int posicionInicio) {
+        marco = crearMarco(lineas, posicionInicio);
+        parametrosCopiados = 0;
+        etiquetaSalidaFuncion = nombreSeccion + NombresMIPS.convertir(SUFIJO_FIN_FUNCION);
         bloques.iniciarSeccion();
-        texto.append(etiqueta(nombre));
+        texto.append(etiqueta(nombreSeccion));
+        if (!nombreSeccion.equals(SECCION_GLOBALES)) {
+            guardarEnlace();
+        }
         texto.append(instruccion("move $fp, $sp"));
         if (marco.getTamano() > 0) {
             texto.append(instruccion("addi $sp, $sp, -" + marco.getTamano()));
@@ -113,21 +151,32 @@ public class TraductorMIPS {
     }
 
     /**
+     * Guarda en la pila la dirección de regreso y el $fp de quien llamó a la
+     * función.
+     */
+    private void guardarEnlace() {
+        texto.append(instruccion("addi $sp, $sp, -" + ESPACIO_ENLACE));
+        texto.append(instruccion("sw $ra, " + POSICION_RA + "($sp)"));
+        texto.append(instruccion("sw $fp, " + POSICION_FP + "($sp)"));
+    }
+
+    /**
      * Arma el marco de una sección recorriendo sus líneas hasta la siguiente
      * función o el final del código.
      *
      * @param lineas todas las líneas del código intermedio
-     * @param desde  posición de la primera línea de la sección
+     * @param posicionInicio posición de la primera línea de la sección
      * @return marco con las locales y los temporales de la sección
      */
-    private MarcoFuncion crearMarco(String[] lineas, int desde) {
-        MarcoFuncion nuevo = new MarcoFuncion();
-        int actual = desde;
-        while (actual < lineas.length && !esInicioDeFuncion(lineas[actual].trim())) {
-            nuevo.registrar(lineas[actual].trim());
-            actual++;
+    private MarcoFuncion crearMarco(String[] lineas, int posicionInicio) {
+        MarcoFuncion marcoSeccion = new MarcoFuncion();
+        int posicionActual = posicionInicio;
+        while (posicionActual < lineas.length
+                && !esInicioDeFuncion(lineas[posicionActual].trim())) {
+            marcoSeccion.registrar(lineas[posicionActual].trim());
+            posicionActual++;
         }
-        return nuevo;
+        return marcoSeccion;
     }
 
     /**
@@ -138,18 +187,28 @@ public class TraductorMIPS {
     private void traducirLinea(String linea) {
         if (linea.equals(FIN_PRINCIPAL)) {
             traducirFinPrograma();
+        } else if (linea.startsWith("funcion#") && linea.endsWith(SUFIJO_FIN_FUNCION)) {
+            traducirFinFuncion(linea);
         } else if (linea.endsWith(":")) {
             traducirEtiqueta(linea);
         } else if (linea.startsWith("goto ")) {
             traducirSalto(linea);
         } else if (linea.startsWith("if ")) {
             traducirSaltoCondicional(linea);
+        } else if (linea.startsWith("param#")) {
+            traducirParametro(linea);
         } else if (linea.startsWith("var#")) {
             traducirDeclaracion(linea);
         } else if (linea.startsWith("write#")) {
             traducirWrite(linea);
         } else if (linea.startsWith("read#")) {
             traducirRead(linea);
+        } else if (linea.startsWith("param ")) {
+            traducirArgumento(linea);
+        } else if (linea.startsWith("call ")) {
+            traducirLlamada(linea);
+        } else if (linea.startsWith("return ")) {
+            traducirRetorno(linea);
         } else if (linea.contains(" = ")) {
             traducirAsignacion(linea);
         } else {
@@ -172,8 +231,8 @@ public class TraductorMIPS {
      * @param linea etiqueta del código intermedio, con los dos puntos al final
      */
     private void traducirEtiqueta(String linea) {
-        String nombre = linea.substring(0, linea.length() - 1);
-        texto.append(etiqueta(NombresMIPS.convertir(nombre)));
+        String etiquetaIntermedia = linea.substring(0, linea.length() - 1);
+        texto.append(etiqueta(NombresMIPS.convertir(etiquetaIntermedia)));
     }
 
     /**
@@ -182,8 +241,8 @@ public class TraductorMIPS {
      * @param linea salto del código intermedio
      */
     private void traducirSalto(String linea) {
-        String destino = linea.substring("goto ".length());
-        texto.append(instruccion("j " + NombresMIPS.convertir(destino)));
+        String etiquetaDestino = linea.substring("goto ".length());
+        texto.append(instruccion("j " + NombresMIPS.convertir(etiquetaDestino)));
     }
 
     /**
@@ -192,10 +251,79 @@ public class TraductorMIPS {
      * @param linea salto condicional del código intermedio
      */
     private void traducirSaltoCondicional(String linea) {
-        String[] partes = linea.split(" ");
-        String destino = NombresMIPS.convertir(partes[POSICION_DESTINO_SALTO]);
-        cargar(partes[POSICION_CONDICION], "$t0");
-        texto.append(instruccion("bne $t0, $zero, " + destino));
+        String[] partesSalto = linea.split(" ");
+        String etiquetaDestino = NombresMIPS.convertir(partesSalto[POSICION_DESTINO_SALTO]);
+        cargar(partesSalto[POSICION_CONDICION], "$t0");
+        texto.append(instruccion("bne $t0, $zero, " + etiquetaDestino));
+    }
+
+    /**
+     * Copia un parámetro a su lugar en el marco. Los primeros cuatro llegan en
+     * $a0 a $a3; los demás, en la pila que dejó quien llamó, arriba del $ra y
+     * el $fp guardados.
+     *
+     * @param linea declaración param# del código intermedio
+     */
+    private void traducirParametro(String linea) {
+        String nombreParametro = linea.split(" ")[1];
+        if (parametrosCopiados < PARAMETROS_EN_REGISTROS) {
+            guardar("$a" + parametrosCopiados, nombreParametro);
+        } else {
+            int parametrosDespues = marco.getCantidadParametros() - 1 - parametrosCopiados;
+            int desplazamientoEnPila = ESPACIO_ENLACE + TAMANO_PALABRA * parametrosDespues;
+            texto.append(instruccion("lw $t0, " + desplazamientoEnPila + "($fp)"));
+            guardar("$t0", nombreParametro);
+        }
+        parametrosCopiados++;
+    }
+
+    /**
+     * Traduce "param t": apila el valor de un argumento antes de la llamada.
+     *
+     * @param linea argumento del código intermedio
+     */
+    private void traducirArgumento(String linea) {
+        String valorArgumento = linea.substring("param ".length());
+        cargar(valorArgumento, "$t0");
+        texto.append(instruccion("addi $sp, $sp, -" + TAMANO_PALABRA));
+        texto.append(instruccion("sw $t0, " + TOPE_PILA));
+    }
+
+    /**
+     * Traduce "call f, n": copia los primeros cuatro argumentos apilados en
+     * $a0 a $a3, salta a la función y, al volver, saca los n argumentos de la
+     * pila. El resultado de la función queda en $v0.
+     *
+     * @param llamada llamada del código intermedio, sin el destino
+     */
+    private void traducirLlamada(String llamada) {
+        int posicionComa = llamada.indexOf(", ");
+        String nombreFuncion = llamada.substring("call ".length(), posicionComa);
+        int cantidadArgumentos = Integer.parseInt(llamada.substring(posicionComa + ", ".length()));
+        int argumentosEnRegistros = Math.min(cantidadArgumentos, PARAMETROS_EN_REGISTROS);
+        for (int numeroArgumento = 0; numeroArgumento < argumentosEnRegistros; numeroArgumento++) {
+            int argumentosDespues = cantidadArgumentos - 1 - numeroArgumento;
+            int desplazamientoEnPila = TAMANO_PALABRA * argumentosDespues;
+            String registroArgumento = "$a" + numeroArgumento;
+            String direccionArgumento = desplazamientoEnPila + "($sp)";
+            texto.append(instruccion("lw " + registroArgumento + ", " + direccionArgumento));
+        }
+        texto.append(instruccion("jal " + etiquetasFunciones.get(nombreFuncion)));
+        if (cantidadArgumentos > 0) {
+            texto.append(instruccion("addi $sp, $sp, " + TAMANO_PALABRA * cantidadArgumentos));
+        }
+    }
+
+    /**
+     * Traduce "return t": deja el valor de t en $v0 y salta a la etiqueta de
+     * salida de la función.
+     *
+     * @param linea retorno del código intermedio
+     */
+    private void traducirRetorno(String linea) {
+        String valorRetorno = linea.substring("return ".length());
+        cargar(valorRetorno, "$v0");
+        texto.append(instruccion("j " + etiquetaSalidaFuncion));
     }
 
     /**
@@ -205,38 +333,41 @@ public class TraductorMIPS {
      * @param linea declaración var# del código intermedio
      */
     private void traducirDeclaracion(String linea) {
-        String nombre = linea.split(" ")[1];
-        if (nombre.endsWith("#global")) {
-            datos.append(NombresMIPS.convertir(nombre) + ": .word 0\n");
+        String nombreVariable = linea.split(" ")[1];
+        if (nombreVariable.endsWith("#global")) {
+            datos.append(NombresMIPS.convertir(nombreVariable) + ": .word 0\n");
         }
     }
 
     /**
      * Traduce una asignación: la copia de un valor, un texto literal o el
      * resultado de una operación entera. Los operandos se cargan en $t0 y $t1
-     * y el resultado queda en $t0 antes de guardarse. El literal char se
-     * reconoce antes de separar la línea, porque ' ' contiene un espacio.
+     * y el resultado queda en $t0 antes de guardarse.
      *
      * @param linea asignación del código intermedio
      */
     private void traducirAsignacion(String linea) {
-        int posicion = linea.indexOf(" = ");
-        String destino = linea.substring(0, posicion);
-        String valor = linea.substring(posicion + " = ".length());
-        String[] partes = valor.split(" ");
-        if (destino.contains("[")) {
+        int posicionIgual = linea.indexOf(" = ");
+        String nombreDestino = linea.substring(0, posicionIgual);
+        String valorAsignado = linea.substring(posicionIgual + " = ".length());
+        String[] partesValor = valorAsignado.split(" ");
+        if (nombreDestino.contains("[")) {
             marcarPendiente(linea);
-        } else if (valor.startsWith("\"")) {
-            cargarTexto(valor, destino, "$t0");
-            guardar("$t0", destino);
-        } else if (esLiteralCaracter(valor)
-                || (partes.length == PARTES_DE_UNA_COPIA && sePuedeCargar(valor))) {
-            cargar(valor, "$t0");
-            guardar("$t0", destino);
-        } else if (partes.length == PARTES_DE_UNA_NEGACION && partes[0].equals(OPERADOR_NO)) {
-            traducirNegacion(destino, partes[1]);
-        } else if (partes.length == PARTES_DE_UNA_OPERACION) {
-            traducirOperacion(linea, destino, partes);
+        } else if (valorAsignado.startsWith("call ")) {
+            traducirLlamada(valorAsignado);
+            guardar("$v0", nombreDestino);
+        } else if (valorAsignado.startsWith("\"")) {
+            cargarTexto(valorAsignado, nombreDestino, "$t0");
+            guardar("$t0", nombreDestino);
+        } else if (esLiteralCaracter(valorAsignado)
+                || (partesValor.length == PARTES_DE_UNA_COPIA && sePuedeCargar(valorAsignado))) {
+            cargar(valorAsignado, "$t0");
+            guardar("$t0", nombreDestino);
+        } else if (partesValor.length == PARTES_DE_UNA_NEGACION
+                && partesValor[0].equals(OPERADOR_NO)) {
+            traducirNegacion(nombreDestino, partesValor[1]);
+        } else if (partesValor.length == PARTES_DE_UNA_OPERACION) {
+            traducirOperacion(linea, nombreDestino, partesValor);
         } else {
             marcarPendiente(linea);
         }
@@ -246,19 +377,20 @@ public class TraductorMIPS {
      * Traduce una operación de la forma "izquierdo operador derecho" si es
      * entera o booleana; si no, la deja pendiente.
      *
-     * @param linea   asignación completa del código intermedio
-     * @param destino nombre que recibe el resultado
-     * @param partes  operando izquierdo, operador y operando derecho
+     * @param linea asignación completa del código intermedio
+     * @param nombreDestino nombre que recibe el resultado
+     * @param partesOperacion operando izquierdo, operador y operando derecho
      */
-    private void traducirOperacion(String linea, String destino, String[] partes) {
-        String izquierdo = partes[0];
-        String operador = partes[1];
-        String derecho = partes[2];
-        if (esOperacionEntera(destino, operador) || esOperacionBool(destino, operador, izquierdo)) {
-            cargar(izquierdo, "$t0");
-            cargar(derecho, "$t1");
+    private void traducirOperacion(String linea, String nombreDestino, String[] partesOperacion) {
+        String operandoIzquierdo = partesOperacion[0];
+        String operador = partesOperacion[1];
+        String operandoDerecho = partesOperacion[2];
+        if (esOperacionEntera(nombreDestino, operador)
+                || esOperacionBool(nombreDestino, operador, operandoIzquierdo)) {
+            cargar(operandoIzquierdo, "$t0");
+            cargar(operandoDerecho, "$t1");
             operar(operador);
-            guardar("$t0", destino);
+            guardar("$t0", nombreDestino);
         } else {
             marcarPendiente(linea);
         }
@@ -268,12 +400,12 @@ public class TraductorMIPS {
      * Indica si una asignación es una operación entera: el destino es un
      * temporal int y el operador es aritmético.
      *
-     * @param destino  nombre que recibe el resultado
+     * @param nombreDestino nombre que recibe el resultado
      * @param operador operador de la expresión
      * @return {@code true} si se traduce con instrucciones enteras
      */
-    private boolean esOperacionEntera(String destino, String operador) {
-        if (!destino.startsWith("temp#int#")) {
+    private boolean esOperacionEntera(String nombreDestino, String operador) {
+        if (!nombreDestino.startsWith("temp#int#")) {
             return false;
         }
         return operador.equals("+") || operador.equals("-") || operador.equals("*")
@@ -284,13 +416,15 @@ public class TraductorMIPS {
      * Indica si una asignación es una operación que da un bool con
      * operandos que no son float. Los float se traducen en otra rama.
      *
-     * @param destino   nombre que recibe el resultado
-     * @param operador  operador de la expresión
-     * @param izquierdo operando izquierdo
+     * @param nombreDestino nombre que recibe el resultado
+     * @param operador operador de la expresión
+     * @param operandoIzquierdo operando izquierdo
      * @return {@code true} si se traduce con instrucciones enteras
      */
-    private boolean esOperacionBool(String destino, String operador, String izquierdo) {
-        if (!destino.startsWith(PREFIJO_BOOL) || izquierdo.startsWith(PREFIJO_FLOTANTE)) {
+    private boolean esOperacionBool(String nombreDestino, String operador,
+            String operandoIzquierdo) {
+        if (!nombreDestino.startsWith(PREFIJO_BOOL)
+                || operandoIzquierdo.startsWith(PREFIJO_FLOTANTE)) {
             return false;
         }
         return esRelacional(operador) || operador.equals(OPERADOR_Y) || operador.equals(OPERADOR_O);
@@ -369,28 +503,28 @@ public class TraductorMIPS {
      */
     private void traducirPotencia() {
         contadorPotencias++;
-        String inicio = "pot." + contadorPotencias;
-        String fin = "pot.end." + contadorPotencias;
+        String etiquetaInicio = "pot." + contadorPotencias;
+        String etiquetaFin = "pot.end." + contadorPotencias;
         texto.append(instruccion("li $t2, 1"));
-        texto.append(etiqueta(inicio));
-        texto.append(instruccion("blez $t1, " + fin));
+        texto.append(etiqueta(etiquetaInicio));
+        texto.append(instruccion("blez $t1, " + etiquetaFin));
         texto.append(instruccion("mul $t2, $t2, $t0"));
         texto.append(instruccion("addi $t1, $t1, -1"));
-        texto.append(instruccion("j " + inicio));
-        texto.append(etiqueta(fin));
+        texto.append(instruccion("j " + etiquetaInicio));
+        texto.append(etiqueta(etiquetaFin));
         texto.append(instruccion("move $t0, $t2"));
     }
 
     /**
      * Traduce la negación lógica: invierte el bit del bool.
      *
-     * @param destino  temporal bool que recibe el resultado
-     * @param operando temporal bool negado
+     * @param nombreDestino temporal bool que recibe el resultado
+     * @param operandoNegado temporal bool negado
      */
-    private void traducirNegacion(String destino, String operando) {
-        cargar(operando, "$t0");
+    private void traducirNegacion(String nombreDestino, String operandoNegado) {
+        cargar(operandoNegado, "$t0");
         texto.append(instruccion("xori $t0, $t0, " + VALOR_VERDADERO));
-        guardar("$t0", destino);
+        guardar("$t0", nombreDestino);
     }
 
     /**
@@ -443,11 +577,11 @@ public class TraductorMIPS {
     /**
      * Devuelve el valor numérico de un literal bool.
      *
-     * @param literal true o false del código intermedio
+     * @param literalBool true o false del código intermedio
      * @return 1 si es true, 0 si es false
      */
-    private int valorDeBool(String literal) {
-        if (literal.equals(LITERAL_VERDADERO)) {
+    private int valorDeBool(String literalBool) {
+        if (literalBool.equals(LITERAL_VERDADERO)) {
             return VALOR_VERDADERO;
         }
         return VALOR_FALSO;
@@ -459,18 +593,18 @@ public class TraductorMIPS {
      * ASCII.
      *
      * @param operando literal, variable o temporal del código intermedio
-     * @param registro registro destino
+     * @param registroDestino registro que recibe el valor
      */
-    private void cargar(String operando, String registro) {
+    private void cargar(String operando, String registroDestino) {
         if (esLiteralEntero(operando)) {
-            texto.append(instruccion("li " + registro + ", " + operando));
+            texto.append(instruccion("li " + registroDestino + ", " + operando));
         } else if (esLiteralBool(operando)) {
-            texto.append(instruccion("li " + registro + ", " + valorDeBool(operando)));
+            texto.append(instruccion("li " + registroDestino + ", " + valorDeBool(operando)));
         } else if (esLiteralCaracter(operando)) {
-            int codigo = operando.charAt(POSICION_CARACTER);
-            texto.append(instruccion("li " + registro + ", " + codigo));
+            int codigoAscii = operando.charAt(POSICION_CARACTER);
+            texto.append(instruccion("li " + registroDestino + ", " + codigoAscii));
         } else {
-            texto.append(instruccion("lw " + registro + ", " + ubicacion(operando)));
+            texto.append(instruccion("lw " + registroDestino + ", " + ubicacion(operando)));
         }
     }
 
@@ -479,15 +613,16 @@ public class TraductorMIPS {
      * un registro. La etiqueta del texto lleva el número del temporal que lo
      * recibe en el código intermedio.
      *
-     * @param literal  texto del código intermedio, con sus comillas
-     * @param temporal temporal string que recibe el texto
-     * @param registro registro destino
+     * @param textoLiteral texto del código intermedio, con sus comillas
+     * @param temporalDestino temporal string que recibe el texto
+     * @param registroDestino registro que recibe la dirección
      */
-    private void cargarTexto(String literal, String temporal, String registro) {
-        String numero = temporal.substring(temporal.lastIndexOf('#') + 1);
-        String nombre = "string." + numero;
-        datos.append(nombre + ": .asciiz " + literal + "\n");
-        texto.append(instruccion("la " + registro + ", " + nombre));
+    private void cargarTexto(String textoLiteral, String temporalDestino, String registroDestino) {
+        int posicionUltimoNumeral = temporalDestino.lastIndexOf('#');
+        String numeroTemporal = temporalDestino.substring(posicionUltimoNumeral + 1);
+        String etiquetaTexto = "string." + numeroTemporal;
+        datos.append(etiquetaTexto + ": .asciiz " + textoLiteral + "\n");
+        texto.append(instruccion("la " + registroDestino + ", " + etiquetaTexto));
     }
 
     /**
@@ -497,15 +632,15 @@ public class TraductorMIPS {
      * @param linea write del código intermedio
      */
     private void traducirWrite(String linea) {
-        String[] partes = linea.split(" ");
-        String tipo = partes[0].substring("write#".length());
-        String nombre = partes[1];
-        if (tipo.equals("int")) {
-            escribirValor(nombre, LLAMADA_ESCRIBIR_ENTERO);
-        } else if (tipo.equals("string")) {
-            escribirValor(nombre, LLAMADA_ESCRIBIR_TEXTO);
-        } else if (tipo.equals("bool")) {
-            escribirBool(nombre);
+        String[] partesWrite = linea.split(" ");
+        String tipoValor = partesWrite[0].substring("write#".length());
+        String nombreValor = partesWrite[1];
+        if (tipoValor.equals("int")) {
+            escribirValor(nombreValor, LLAMADA_ESCRIBIR_ENTERO);
+        } else if (tipoValor.equals("string")) {
+            escribirValor(nombreValor, LLAMADA_ESCRIBIR_TEXTO);
+        } else if (tipoValor.equals("bool")) {
+            escribirBool(nombreValor);
         } else {
             marcarPendiente(linea);
         }
@@ -515,11 +650,11 @@ public class TraductorMIPS {
      * Escribe en la consola el valor de una variable o un temporal y después
      * un salto de línea.
      *
-     * @param nombre        variable o temporal del código intermedio
+     * @param nombreValor variable o temporal del código intermedio
      * @param codigoLlamada código de la llamada al sistema que escribe el valor
      */
-    private void escribirValor(String nombre, int codigoLlamada) {
-        cargar(nombre, "$a0");
+    private void escribirValor(String nombreValor, int codigoLlamada) {
+        cargar(nombreValor, "$a0");
         llamarAlSistema(codigoLlamada);
         escribirSaltoDeLinea();
     }
@@ -536,20 +671,20 @@ public class TraductorMIPS {
      * Escribe true o false según el valor de un bool, seguido de un salto de
      * línea.
      *
-     * @param nombre variable o temporal bool del código intermedio
+     * @param nombreBool variable o temporal bool del código intermedio
      */
-    private void escribirBool(String nombre) {
+    private void escribirBool(String nombreBool) {
         guardarTextosBool();
         contadorEscriturasBool++;
-        String falso = "write.bool.false." + contadorEscriturasBool;
-        String fin = "write.bool.end." + contadorEscriturasBool;
-        cargar(nombre, "$t0");
-        texto.append(instruccion("beq $t0, $zero, " + falso));
+        String etiquetaFalso = "write.bool.false." + contadorEscriturasBool;
+        String etiquetaFin = "write.bool.end." + contadorEscriturasBool;
+        cargar(nombreBool, "$t0");
+        texto.append(instruccion("beq $t0, $zero, " + etiquetaFalso));
         texto.append(instruccion("la $a0, " + ETIQUETA_BOOL_VERDADERO));
-        texto.append(instruccion("j " + fin));
-        texto.append(etiqueta(falso));
+        texto.append(instruccion("j " + etiquetaFin));
+        texto.append(etiqueta(etiquetaFalso));
         texto.append(instruccion("la $a0, " + ETIQUETA_BOOL_FALSO));
-        texto.append(etiqueta(fin));
+        texto.append(etiqueta(etiquetaFin));
         llamarAlSistema(LLAMADA_ESCRIBIR_TEXTO);
         escribirSaltoDeLinea();
     }
@@ -573,12 +708,12 @@ public class TraductorMIPS {
      * @param linea read del código intermedio
      */
     private void traducirRead(String linea) {
-        String[] partes = linea.split(" ");
-        String tipo = partes[0].substring("read#".length());
-        String nombre = partes[1];
-        if (tipo.equals("int")) {
+        String[] partesRead = linea.split(" ");
+        String tipoVariable = partesRead[0].substring("read#".length());
+        String nombreVariable = partesRead[1];
+        if (tipoVariable.equals("int")) {
             llamarAlSistema(LLAMADA_LEER_ENTERO);
-            guardar("$v0", nombre);
+            guardar("$v0", nombreVariable);
         } else {
             marcarPendiente(linea);
         }
@@ -597,25 +732,25 @@ public class TraductorMIPS {
     /**
      * Guarda el valor de un registro en una variable o un temporal.
      *
-     * @param registro registro con el valor
-     * @param nombre   variable o temporal del código intermedio
+     * @param registroOrigen registro con el valor
+     * @param nombreDestino variable o temporal del código intermedio
      */
-    private void guardar(String registro, String nombre) {
-        texto.append(instruccion("sw " + registro + ", " + ubicacion(nombre)));
+    private void guardar(String registroOrigen, String nombreDestino) {
+        texto.append(instruccion("sw " + registroOrigen + ", " + ubicacion(nombreDestino)));
     }
 
     /**
      * Devuelve dónde está guardado un nombre: su lugar en el marco si es una
      * local o un temporal, o su etiqueta en la sección de datos si es global.
      *
-     * @param nombre variable o temporal del código intermedio
+     * @param nombreBuscado variable o temporal del código intermedio
      * @return dirección lista para usar en lw o sw
      */
-    private String ubicacion(String nombre) {
-        if (marco.contiene(nombre)) {
-            return marco.ubicacion(nombre);
+    private String ubicacion(String nombreBuscado) {
+        if (marco.contiene(nombreBuscado)) {
+            return marco.ubicacion(nombreBuscado);
         }
-        return NombresMIPS.convertir(nombre);
+        return NombresMIPS.convertir(nombreBuscado);
     }
 
     /**
@@ -623,6 +758,21 @@ public class TraductorMIPS {
      */
     private void traducirFinPrograma() {
         llamarAlSistema(LLAMADA_TERMINAR);
+    }
+
+    /**
+     * Traduce el final de una función: escribe su etiqueta de salida, saca el
+     * marco de la pila, recupera $fp y $ra y regresa a quien la llamó.
+     *
+     * @param linea final de la función en el código intermedio
+     */
+    private void traducirFinFuncion(String linea) {
+        texto.append(etiqueta(NombresMIPS.convertir(linea)));
+        texto.append(instruccion("move $sp, $fp"));
+        texto.append(instruccion("lw $fp, " + POSICION_FP + "($sp)"));
+        texto.append(instruccion("lw $ra, " + POSICION_RA + "($sp)"));
+        texto.append(instruccion("addi $sp, $sp, " + ESPACIO_ENLACE));
+        texto.append(instruccion("jr $ra"));
     }
 
     /**
@@ -638,10 +788,10 @@ public class TraductorMIPS {
     /**
      * Da formato a una etiqueta MIPS.
      *
-     * @param nombre nombre de la etiqueta, ya válido en MIPS
+     * @param nombreEtiqueta nombre de la etiqueta, ya válido en MIPS
      * @return etiqueta lista para agregar al programa
      */
-    private static String etiqueta(String nombre) {
-        return nombre + ":\n";
+    private static String etiqueta(String nombreEtiqueta) {
+        return nombreEtiqueta + ":\n";
     }
 }

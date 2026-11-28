@@ -214,11 +214,15 @@ public class Analizador {
      */
     private static String rutaCodigoMips(String rutaEntrada, String rutaCodigo) {
         String nombreEntrada = Path.of(rutaEntrada).getFileName().toString();
-        int punto = nombreEntrada.lastIndexOf('.');
-        String nombreSinExtension = punto > 0 ? nombreEntrada.substring(0, punto) : nombreEntrada;
+        int posicionPunto = nombreEntrada.lastIndexOf('.');
+        String nombreSinExtension = nombreEntrada;
+        if (posicionPunto > 0) {
+            nombreSinExtension = nombreEntrada.substring(0, posicionPunto);
+        }
 
-        String nombreCodigo = Path.of(rutaCodigo).getFileName().toString();
-        String carpeta = rutaCodigo.substring(0, rutaCodigo.length() - nombreCodigo.length());
-        return carpeta + nombreSinExtension + ".asm";
+        String nombreArchivoCodigo = Path.of(rutaCodigo).getFileName().toString();
+        int largoCarpeta = rutaCodigo.length() - nombreArchivoCodigo.length();
+        String carpetaCodigo = rutaCodigo.substring(0, largoCarpeta);
+        return carpetaCodigo + nombreSinExtension + ".asm";
     }
 }
