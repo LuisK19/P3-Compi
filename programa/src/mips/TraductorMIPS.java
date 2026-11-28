@@ -4,13 +4,18 @@ package src.mips;
  * Traduce el código intermedio de tres direcciones a código MIPS que se puede
  * correr en QtSpim.
  *
- * <p>
- * Cada línea del código intermedio se traduce por separado. Lo que va en la
+ * <p>Cada línea del código intermedio se traduce por separado. Lo que va en la
  * sección de datos (globales y textos) se junta aparte de las instrucciones y
  * al final se arma el programa completo.
  */
 public class TraductorMIPS {
     private static final String FIN_PRINCIPAL = "funcion#void#principal#end";
+    private static final String SECCION_GLOBALES = "main";
+    private static final String SUFIJO_FIN_FUNCION = "#end";
+
+    private static final int ESPACIO_ENLACE = 8;
+    private static final int POSICION_RA = 4;
+    private static final int POSICION_FP = 0;
 
     private static final int LLAMADA_ESCRIBIR_ENTERO = 1;
     private static final int LLAMADA_ESCRIBIR_TEXTO = 4;
@@ -65,7 +70,7 @@ public class TraductorMIPS {
     public String traducir(String codigoIntermedio) {
         String[] lineas = codigoIntermedio.split("\n");
         bloques = new BloquesBasicos(lineas);
-        iniciarSeccion("main", lineas, 0);
+        iniciarSeccion(SECCION_GLOBALES, lineas, 0);
         for (int i = 0; i < lineas.length; i++) {
             String linea = lineas[i].trim();
             if (linea.isEmpty()) {
@@ -96,16 +101,20 @@ public class TraductorMIPS {
 
     /**
      * Empieza una sección: arma su marco, escribe su etiqueta y reserva el
-     * espacio en la pila.
+     * espacio en la pila. Una función además guarda $ra y el $fp de quien la
+     * llamó.
      *
      * @param nombre nombre de la sección en MIPS
      * @param lineas todas las líneas del código intermedio
-     * @param desde  posición de la primera línea de la sección
+     * @param desde posición de la primera línea de la sección
      */
     private void iniciarSeccion(String nombre, String[] lineas, int desde) {
         marco = crearMarco(lineas, desde);
         bloques.iniciarSeccion();
         texto.append(etiqueta(nombre));
+        if (!nombre.equals(SECCION_GLOBALES)) {
+            guardarEnlace();
+        }
         texto.append(instruccion("move $fp, $sp"));
         if (marco.getTamano() > 0) {
             texto.append(instruccion("addi $sp, $sp, -" + marco.getTamano()));
@@ -113,11 +122,21 @@ public class TraductorMIPS {
     }
 
     /**
+     * Guarda en la pila la dirección de regreso y el $fp de quien llamó a la
+     * función.
+     */
+    private void guardarEnlace() {
+        texto.append(instruccion("addi $sp, $sp, -" + ESPACIO_ENLACE));
+        texto.append(instruccion("sw $ra, " + POSICION_RA + "($sp)"));
+        texto.append(instruccion("sw $fp, " + POSICION_FP + "($sp)"));
+    }
+
+    /**
      * Arma el marco de una sección recorriendo sus líneas hasta la siguiente
      * función o el final del código.
      *
      * @param lineas todas las líneas del código intermedio
-     * @param desde  posición de la primera línea de la sección
+     * @param desde posición de la primera línea de la sección
      * @return marco con las locales y los temporales de la sección
      */
     private MarcoFuncion crearMarco(String[] lineas, int desde) {
@@ -138,6 +157,8 @@ public class TraductorMIPS {
     private void traducirLinea(String linea) {
         if (linea.equals(FIN_PRINCIPAL)) {
             traducirFinPrograma();
+        } else if (linea.startsWith("funcion#") && linea.endsWith(SUFIJO_FIN_FUNCION)) {
+            traducirFinFuncion(linea);
         } else if (linea.endsWith(":")) {
             traducirEtiqueta(linea);
         } else if (linea.startsWith("goto ")) {
@@ -214,8 +235,7 @@ public class TraductorMIPS {
     /**
      * Traduce una asignación: la copia de un valor, un texto literal o el
      * resultado de una operación entera. Los operandos se cargan en $t0 y $t1
-     * y el resultado queda en $t0 antes de guardarse. El literal char se
-     * reconoce antes de separar la línea, porque ' ' contiene un espacio.
+     * y el resultado queda en $t0 antes de guardarse.
      *
      * @param linea asignación del código intermedio
      */
@@ -246,9 +266,9 @@ public class TraductorMIPS {
      * Traduce una operación de la forma "izquierdo operador derecho" si es
      * entera o booleana; si no, la deja pendiente.
      *
-     * @param linea   asignación completa del código intermedio
+     * @param linea asignación completa del código intermedio
      * @param destino nombre que recibe el resultado
-     * @param partes  operando izquierdo, operador y operando derecho
+     * @param partes operando izquierdo, operador y operando derecho
      */
     private void traducirOperacion(String linea, String destino, String[] partes) {
         String izquierdo = partes[0];
@@ -268,7 +288,7 @@ public class TraductorMIPS {
      * Indica si una asignación es una operación entera: el destino es un
      * temporal int y el operador es aritmético.
      *
-     * @param destino  nombre que recibe el resultado
+     * @param destino nombre que recibe el resultado
      * @param operador operador de la expresión
      * @return {@code true} si se traduce con instrucciones enteras
      */
@@ -284,8 +304,8 @@ public class TraductorMIPS {
      * Indica si una asignación es una operación que da un bool con
      * operandos que no son float. Los float se traducen en otra rama.
      *
-     * @param destino   nombre que recibe el resultado
-     * @param operador  operador de la expresión
+     * @param destino nombre que recibe el resultado
+     * @param operador operador de la expresión
      * @param izquierdo operando izquierdo
      * @return {@code true} si se traduce con instrucciones enteras
      */
@@ -384,7 +404,7 @@ public class TraductorMIPS {
     /**
      * Traduce la negación lógica: invierte el bit del bool.
      *
-     * @param destino  temporal bool que recibe el resultado
+     * @param destino temporal bool que recibe el resultado
      * @param operando temporal bool negado
      */
     private void traducirNegacion(String destino, String operando) {
@@ -479,7 +499,7 @@ public class TraductorMIPS {
      * un registro. La etiqueta del texto lleva el número del temporal que lo
      * recibe en el código intermedio.
      *
-     * @param literal  texto del código intermedio, con sus comillas
+     * @param literal texto del código intermedio, con sus comillas
      * @param temporal temporal string que recibe el texto
      * @param registro registro destino
      */
@@ -515,7 +535,7 @@ public class TraductorMIPS {
      * Escribe en la consola el valor de una variable o un temporal y después
      * un salto de línea.
      *
-     * @param nombre        variable o temporal del código intermedio
+     * @param nombre variable o temporal del código intermedio
      * @param codigoLlamada código de la llamada al sistema que escribe el valor
      */
     private void escribirValor(String nombre, int codigoLlamada) {
@@ -598,7 +618,7 @@ public class TraductorMIPS {
      * Guarda el valor de un registro en una variable o un temporal.
      *
      * @param registro registro con el valor
-     * @param nombre   variable o temporal del código intermedio
+     * @param nombre variable o temporal del código intermedio
      */
     private void guardar(String registro, String nombre) {
         texto.append(instruccion("sw " + registro + ", " + ubicacion(nombre)));
@@ -623,6 +643,21 @@ public class TraductorMIPS {
      */
     private void traducirFinPrograma() {
         llamarAlSistema(LLAMADA_TERMINAR);
+    }
+
+    /**
+     * Traduce el final de una función: escribe su etiqueta de salida, saca el
+     * marco de la pila, recupera $fp y $ra y regresa a quien la llamó.
+     *
+     * @param linea final de la función en el código intermedio
+     */
+    private void traducirFinFuncion(String linea) {
+        texto.append(etiqueta(NombresMIPS.convertir(linea)));
+        texto.append(instruccion("move $sp, $fp"));
+        texto.append(instruccion("lw $fp, " + POSICION_FP + "($sp)"));
+        texto.append(instruccion("lw $ra, " + POSICION_RA + "($sp)"));
+        texto.append(instruccion("addi $sp, $sp, " + ESPACIO_ENLACE));
+        texto.append(instruccion("jr $ra"));
     }
 
     /**
