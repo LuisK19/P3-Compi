@@ -16,6 +16,8 @@ public class TraductorMIPS {
     private static final int ESPACIO_ENLACE = 8;
     private static final int POSICION_RA = 4;
     private static final int POSICION_FP = 0;
+    private static final int TAMANO_PALABRA = 4;
+    private static final int PARAMETROS_EN_REGISTROS = 4;
 
     private static final int LLAMADA_ESCRIBIR_ENTERO = 1;
     private static final int LLAMADA_ESCRIBIR_TEXTO = 4;
@@ -55,6 +57,7 @@ public class TraductorMIPS {
     private StringBuilder texto = new StringBuilder();
     private MarcoFuncion marco;
     private BloquesBasicos bloques;
+    private int parametrosCopiados = 0;
     private int contadorPotencias = 0;
     private int contadorEscriturasBool = 0;
     private boolean textosBoolGuardados = false;
@@ -110,6 +113,7 @@ public class TraductorMIPS {
      */
     private void iniciarSeccion(String nombre, String[] lineas, int desde) {
         marco = crearMarco(lineas, desde);
+        parametrosCopiados = 0;
         bloques.iniciarSeccion();
         texto.append(etiqueta(nombre));
         if (!nombre.equals(SECCION_GLOBALES)) {
@@ -165,6 +169,8 @@ public class TraductorMIPS {
             traducirSalto(linea);
         } else if (linea.startsWith("if ")) {
             traducirSaltoCondicional(linea);
+        } else if (linea.startsWith("param#")) {
+            traducirParametro(linea);
         } else if (linea.startsWith("var#")) {
             traducirDeclaracion(linea);
         } else if (linea.startsWith("write#")) {
@@ -217,6 +223,26 @@ public class TraductorMIPS {
         String destino = NombresMIPS.convertir(partes[POSICION_DESTINO_SALTO]);
         cargar(partes[POSICION_CONDICION], "$t0");
         texto.append(instruccion("bne $t0, $zero, " + destino));
+    }
+
+    /**
+     * Copia un parámetro a su lugar en el marco. Los primeros cuatro llegan en
+     * $a0 a $a3; los demás, en la pila que dejó quien llamó, arriba del $ra y
+     * el $fp guardados.
+     *
+     * @param linea declaración param# del código intermedio
+     */
+    private void traducirParametro(String linea) {
+        String nombre = linea.split(" ")[1];
+        if (parametrosCopiados < PARAMETROS_EN_REGISTROS) {
+            guardar("$a" + parametrosCopiados, nombre);
+        } else {
+            int restantes = marco.getCantidadParametros() - 1 - parametrosCopiados;
+            int desplazamiento = ESPACIO_ENLACE + TAMANO_PALABRA * restantes;
+            texto.append(instruccion("lw $t0, " + desplazamiento + "($fp)"));
+            guardar("$t0", nombre);
+        }
+        parametrosCopiados++;
     }
 
     /**

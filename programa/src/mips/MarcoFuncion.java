@@ -14,16 +14,20 @@ public class MarcoFuncion {
 
     private HashMap<String, Integer> desplazamientos = new HashMap<>();
     private int tamano = 0;
+    private int cantidadParametros = 0;
 
     /**
-     * Anota los nombres que crea una línea de la sección: la variable de un
-     * var# local o el temporal que recibe un valor. Las demás líneas no crean
-     * nombres.
+     * Anota los nombres que crea una línea de la sección: un parámetro, la
+     * variable de un var# local o el temporal que recibe un valor. Las demás
+     * líneas no crean nombres.
      *
      * @param linea línea del código intermedio, sin espacios a los lados
      */
     public void registrar(String linea) {
-        if (linea.startsWith("var#")) {
+        if (linea.startsWith("param#")) {
+            cantidadParametros++;
+            agregar(linea.split(" ")[1]);
+        } else if (linea.startsWith("var#")) {
             agregar(linea.split(" ")[1]);
         } else if (linea.startsWith("temp#") && linea.contains(" = ")) {
             agregar(linea.substring(0, linea.indexOf(" = ")));
@@ -67,5 +71,10 @@ public class MarcoFuncion {
     /** Devuelve cuántos bytes ocupa el marco. */
     public int getTamano() {
         return tamano;
+    }
+
+    /** Devuelve cuántos parámetros recibe la función. */
+    public int getCantidadParametros() {
+        return cantidadParametros;
     }
 }
