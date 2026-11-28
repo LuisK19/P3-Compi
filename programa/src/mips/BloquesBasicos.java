@@ -10,8 +10,8 @@ import java.util.HashSet;
  * <p>Las líneas se revisan en orden, una por una, mientras se traducen.
  */
 public class BloquesBasicos {
-    private HashSet<String> destinos = new HashSet<>();
-    private int numero = 0;
+    private HashSet<String> etiquetasDestino = new HashSet<>();
+    private int numeroBloque = 0;
     private boolean vieneDeUnSalto = false;
     private boolean bloqueSinInstrucciones = false;
 
@@ -22,10 +22,11 @@ public class BloquesBasicos {
      * @param lineas todas las líneas del código intermedio
      */
     public BloquesBasicos(String[] lineas) {
-        for (String linea : lineas) {
-            String limpia = linea.trim();
-            if (esSalto(limpia)) {
-                destinos.add(limpia.substring(limpia.indexOf("goto ") + "goto ".length()));
+        for (String lineaOriginal : lineas) {
+            String linea = lineaOriginal.trim();
+            if (esSalto(linea)) {
+                int posicionDestino = linea.indexOf("goto ") + "goto ".length();
+                etiquetasDestino.add(linea.substring(posicionDestino));
             }
         }
     }
@@ -47,21 +48,21 @@ public class BloquesBasicos {
      */
     public boolean empiezaBloque(String linea) {
         boolean esLider = vieneDeUnSalto || esDestino(linea);
-        boolean empieza = esLider && !bloqueSinInstrucciones;
-        if (empieza) {
-            numero++;
+        boolean empiezaNuevoBloque = esLider && !bloqueSinInstrucciones;
+        if (empiezaNuevoBloque) {
+            numeroBloque++;
             bloqueSinInstrucciones = true;
         }
         if (!esEtiqueta(linea)) {
             bloqueSinInstrucciones = false;
         }
         vieneDeUnSalto = esSalto(linea);
-        return empieza;
+        return empiezaNuevoBloque;
     }
 
     /** Devuelve el número del último bloque básico que empezó. */
-    public int getNumero() {
-        return numero;
+    public int getNumeroBloque() {
+        return numeroBloque;
     }
 
     /**
@@ -81,7 +82,11 @@ public class BloquesBasicos {
      * @return {@code true} si es destino de un salto
      */
     private boolean esDestino(String linea) {
-        return esEtiqueta(linea) && destinos.contains(linea.substring(0, linea.length() - 1));
+        if (!esEtiqueta(linea)) {
+            return false;
+        }
+        String nombreEtiqueta = linea.substring(0, linea.length() - 1);
+        return etiquetasDestino.contains(nombreEtiqueta);
     }
 
     /**

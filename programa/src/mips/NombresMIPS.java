@@ -8,10 +8,10 @@ public class NombresMIPS {
     /**
      * Convierte un nombre del código intermedio cambiando cada # por un punto.
      *
-     * @param nombre variable global, etiqueta o función del código intermedio
+     * @param nombreIntermedio variable global, etiqueta o función del código intermedio
      * @return nombre válido en MIPS
      */
-    public static String convertir(String nombre) {
-        return nombre.replace('#', '.');
+    public static String convertir(String nombreIntermedio) {
+        return nombreIntermedio.replace('#', '.');
     }
 }
